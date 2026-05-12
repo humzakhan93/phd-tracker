@@ -1,6 +1,6 @@
 {
-  "name": "PHD Tracker",
-  "short_name": "PHD Tracker",
+  "name": "Driver Ledger",
+  "short_name": "Driver Ledger",
   "description": "Private Hire Driver Business Manager",
   "start_url": "/",
   "display": "standalone",
