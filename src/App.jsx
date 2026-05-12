@@ -21,34 +21,66 @@ function load(key, fallback) {
 }
 function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 
+// ─── Google Fonts ─────────────────────────────────────────────────────────────
+const fontLink = document.createElement("link");
+fontLink.rel = "stylesheet";
+fontLink.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+document.head.appendChild(fontLink);
+
 // ─── Colours ──────────────────────────────────────────────────────────────────
 const C = {
-  bg: "#080808", surface: "#111", card: "#161616", border: "#1f1f1f",
-  accent: "#FFD23F", green: "#2ECC71", red: "#E74C3C", blue: "#3498DB",
-  orange: "#F39C12", text: "#F0EDE8", sub: "#666", muted: "#333",
+  bg: "#F4F6FA", surface: "#FFFFFF", card: "#FFFFFF", border: "#E8ECF2",
+  accent: "#F5A623", accentDark: "#D4891A",
+  green: "#16A34A", greenBg: "#F0FDF4", greenBorder: "#BBF7D0",
+  red: "#DC2626", redBg: "#FFF5F5", redBorder: "#FECACA",
+  blue: "#2563EB", blueBg: "#EFF6FF", blueBorder: "#BFDBFE",
+  orange: "#EA580C", orangeBg: "#FFF7ED",
+  text: "#111827", sub: "#6B7280", muted: "#9CA3AF", light: "#F9FAFB",
 };
-const OP_COLOR = { Uber: C.green, Bolt: "#00C853", "Airport Transfer": C.blue, "Local Operator": C.orange, Other: "#888" };
+const FONT = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+const OP_COLOR = { Uber: C.green, Bolt: "#16A34A", "Airport Transfer": C.blue, "Local Operator": C.orange, Other: "#6B7280" };
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 const inputStyle = {
-  width: "100%", background: C.card, border: `1px solid ${C.border}`,
-  color: C.text, padding: "11px 12px", fontSize: "15px",
-  fontFamily: "'DM Mono','Courier New',monospace",
-  borderRadius: "5px", boxSizing: "border-box", outline: "none",
+  width: "100%", background: "#F9FAFB", border: `1.5px solid ${C.border}`,
+  color: C.text, padding: "12px 14px", fontSize: "15px",
+  fontFamily: FONT, borderRadius: "10px", boxSizing: "border-box", outline: "none",
+  fontWeight: "500",
 };
 const selectStyle = { ...inputStyle, appearance: "none" };
 
 function Pill({ label, color = C.accent }) {
-  return <span style={{ display: "inline-block", background: color + "22", color, border: `1px solid ${color}44`, borderRadius: "20px", padding: "2px 9px", fontSize: "10px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</span>;
+  const bgMap = {
+    [C.green]: C.greenBg, [C.blue]: C.blueBg, [C.orange]: C.orangeBg,
+  };
+  return (
+    <span style={{
+      display: "inline-block",
+      background: bgMap[color] || "#F3F4F6",
+      color,
+      borderRadius: "20px",
+      padding: "3px 10px",
+      fontSize: "11px",
+      fontWeight: "600",
+      fontFamily: FONT,
+    }}>{label}</span>
+  );
 }
 function SectionTitle({ children }) {
-  return <div style={{ fontSize: "10px", letterSpacing: "0.16em", textTransform: "uppercase", color: C.sub, marginBottom: "12px", paddingBottom: "8px", borderBottom: `1px solid ${C.border}` }}>{children}</div>;
+  return (
+    <div style={{
+      fontSize: "11px", fontWeight: "700", textTransform: "uppercase",
+      letterSpacing: "0.08em", color: C.muted, marginBottom: "12px",
+      paddingBottom: "10px", borderBottom: `1px solid ${C.border}`,
+      fontFamily: FONT,
+    }}>{children}</div>
+  );
 }
 function Field({ label, hint, children }) {
   return (
     <div style={{ marginBottom: "14px" }}>
-      <div style={{ fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", color: C.sub, marginBottom: "5px" }}>{label}</div>
-      {hint && <div style={{ fontSize: "11px", color: C.muted, marginBottom: "6px" }}>{hint}</div>}
+      <div style={{ fontSize: "13px", fontWeight: "600", color: C.text, marginBottom: "6px", fontFamily: FONT }}>{label}</div>
+      {hint && <div style={{ fontSize: "12px", color: C.sub, marginBottom: "6px", fontFamily: FONT }}>{hint}</div>}
       {children}
     </div>
   );
@@ -57,38 +89,51 @@ function Input({ label, hint, ...props }) {
   return <Field label={label} hint={hint}><input style={inputStyle} {...props} /></Field>;
 }
 function Select({ label, options, ...props }) {
-  return <Field label={label}><select style={selectStyle} {...props}>{options.map(o => <option key={o}>{o}</option>)}</select></Field>;
+  return (
+    <Field label={label}>
+      <select style={selectStyle} {...props}>
+        {options.map(o => <option key={o}>{o}</option>)}
+      </select>
+    </Field>
+  );
 }
 function Btn({ children, onClick, disabled, color = C.accent, outline, full = true, big }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
       width: full ? "100%" : "auto",
-      background: outline ? "transparent" : disabled ? C.muted : color,
-      color: outline ? color : disabled ? C.sub : color === C.accent ? "#080808" : "#fff",
+      background: outline ? "transparent" : disabled ? "#E5E7EB" : color,
+      color: outline ? color : disabled ? C.muted : "#fff",
       border: outline ? `2px solid ${color}` : "none",
-      padding: big ? "18px 16px" : "13px 16px",
-      fontSize: big ? "13px" : "11px", letterSpacing: "0.12em",
-      textTransform: "uppercase", fontWeight: "700",
-      fontFamily: "'DM Mono','Courier New',monospace",
-      borderRadius: "6px", cursor: disabled ? "not-allowed" : "pointer",
-      transition: "opacity 0.15s",
+      padding: big ? "16px" : "13px 16px",
+      fontSize: big ? "15px" : "14px",
+      fontWeight: "700", fontFamily: FONT,
+      borderRadius: "12px", cursor: disabled ? "not-allowed" : "pointer",
+      transition: "all 0.15s", letterSpacing: "0.01em",
+      boxShadow: disabled || outline ? "none" : "0 2px 8px rgba(0,0,0,0.12)",
     }}>{children}</button>
   );
 }
 function StatCard({ label, value, sub, color = C.accent }) {
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "7px", padding: "14px" }}>
-      <div style={{ fontSize: "9px", letterSpacing: "0.14em", textTransform: "uppercase", color: C.sub }}>{label}</div>
-      <div style={{ fontSize: "22px", color, fontWeight: "700", marginTop: "5px", lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: "10px", color: C.sub, marginTop: "5px" }}>{sub}</div>}
+    <div style={{
+      background: C.card, border: `1px solid ${C.border}`,
+      borderRadius: "14px", padding: "16px",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+    }}>
+      <div style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.06em", color: C.sub, fontFamily: FONT }}>{label}</div>
+      <div style={{ fontSize: "24px", color, fontWeight: "800", marginTop: "6px", lineHeight: 1, fontFamily: FONT }}>{value}</div>
+      {sub && <div style={{ fontSize: "11px", color: C.muted, marginTop: "5px", fontFamily: FONT }}>{sub}</div>}
     </div>
   );
 }
 function Row({ label, value, color = C.text, bold }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.border}`, fontSize: "13px" }}>
-      <span style={{ color: C.sub }}>{label}</span>
-      <span style={{ color, fontWeight: bold ? "700" : "400" }}>{value}</span>
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      padding: "10px 0", borderBottom: `1px solid ${C.border}`, fontFamily: FONT,
+    }}>
+      <span style={{ fontSize: "14px", color: C.sub }}>{label}</span>
+      <span style={{ fontSize: "14px", color, fontWeight: bold ? "700" : "500" }}>{value}</span>
     </div>
   );
 }
@@ -121,15 +166,15 @@ function StartShiftModal({ onStart, onCancel }) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 100, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div style={{ background: C.surface, borderRadius: "14px 14px 0 0", border: `1px solid ${C.border}`, padding: "24px 22px 36px" }}>
-        <div style={{ fontSize: "10px", color: C.sub, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: "4px" }}>Starting shift</div>
-        <div style={{ fontSize: "20px", fontWeight: "700", color: C.accent, marginBottom: "6px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div style={{ background: C.surface, borderRadius: "24px 24px 0 0", padding: "24px 22px 40px", boxShadow: "0 -4px 30px rgba(0,0,0,0.15)" }}>
+        <div style={{ fontSize: "12px", color: C.sub, fontWeight: "600", marginBottom: "4px", fontFamily: FONT }}>Starting shift</div>
+        <div style={{ fontSize: "28px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>
           {new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
         </div>
-        <div style={{ fontSize: "12px", color: C.sub, marginBottom: "24px" }}>{dateStr(Date.now())}</div>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "24px", fontFamily: FONT }}>{dateStr(Date.now())}</div>
 
-        <div style={{ fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", color: C.sub, marginBottom: "12px" }}>
+        <div style={{ fontSize: "13px", fontWeight: "600", color: C.text, marginBottom: "12px", fontFamily: FONT }}>
           How do you want to track mileage?
         </div>
 
@@ -140,13 +185,13 @@ function StartShiftModal({ onStart, onCancel }) {
           ].map(opt => (
             <button key={opt.id} onClick={() => setMileageMode(opt.id)} style={{
               flex: 1, padding: "14px 10px", textAlign: "left",
-              background: mileageMode === opt.id ? C.accent + "18" : C.card,
+              background: mileageMode === opt.id ? "#FFF7ED" : C.light,
               border: `2px solid ${mileageMode === opt.id ? C.accent : C.border}`,
-              borderRadius: "7px", cursor: "pointer", color: C.text,
-              fontFamily: "'DM Mono','Courier New',monospace",
+              borderRadius: "14px", cursor: "pointer",
+              fontFamily: FONT,
             }}>
-              <div style={{ fontSize: "12px", fontWeight: "700", marginBottom: "4px", color: mileageMode === opt.id ? C.accent : C.text }}>{opt.label}</div>
-              <div style={{ fontSize: "10px", color: C.sub, lineHeight: "1.4" }}>{opt.desc}</div>
+              <div style={{ fontSize: "13px", fontWeight: "700", marginBottom: "4px", color: mileageMode === opt.id ? C.accent : C.text }}>{opt.label}</div>
+              <div style={{ fontSize: "11px", color: C.sub, lineHeight: "1.4" }}>{opt.desc}</div>
             </button>
           ))}
         </div>
@@ -163,16 +208,14 @@ function StartShiftModal({ onStart, onCancel }) {
         )}
 
         <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
-          <Btn color={C.muted} outline full={false} onClick={onCancel}>Cancel</Btn>
+          <button onClick={onCancel} style={{ padding: "13px 20px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontFamily: FONT, fontWeight: "600", fontSize: "14px", cursor: "pointer" }}>Cancel</button>
           <div style={{ flex: 1 }}>
-            <Btn big onClick={confirmStart} color={C.green}>
-              🟢 Start Shift
-            </Btn>
+            <Btn big onClick={confirmStart} color={C.green}>🟢 Start Shift</Btn>
           </div>
         </div>
 
         <button onClick={() => onStart({ id: Date.now(), startTs: Date.now(), mileageMode: "skip", startOdometer: null })}
-          style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", marginTop: "14px", cursor: "pointer", fontFamily: "inherit", width: "100%", textAlign: "center" }}>
+          style={{ background: "none", border: "none", color: C.muted, fontSize: "12px", marginTop: "14px", cursor: "pointer", fontFamily: FONT, width: "100%", textAlign: "center" }}>
           Skip mileage tracking for this shift
         </button>
       </div>
@@ -254,15 +297,15 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
     });
   }
 
-  const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 100, overflowY: "auto" };
-  const sheet = { background: C.surface, margin: "16px", borderRadius: "12px", border: `1px solid ${C.border}`, padding: "22px", marginBottom: "40px" };
+  const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, overflowY: "auto" };
+  const sheet = { background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px", boxShadow: "0 8px 40px rgba(0,0,0,0.15)" };
 
   const YesNo = ({ onYes, onNo }) => (
     <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
-      <button onClick={onNo} style={{ flex: 1, padding: "16px", background: C.card, border: `1px solid ${C.border}`, borderRadius: "7px", color: C.sub, fontSize: "13px", fontWeight: "700", fontFamily: "inherit", cursor: "pointer" }}>
+      <button onClick={onNo} style={{ flex: 1, padding: "16px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
         No, skip
       </button>
-      <button onClick={onYes} style={{ flex: 1, padding: "16px", background: C.accent + "18", border: `2px solid ${C.accent}`, borderRadius: "7px", color: C.accent, fontSize: "13px", fontWeight: "700", fontFamily: "inherit", cursor: "pointer" }}>
+      <button onClick={onYes} style={{ flex: 1, padding: "16px", background: "#FFF7ED", border: `2px solid ${C.accent}`, borderRadius: "12px", color: C.accent, fontSize: "14px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>
         Yes, add it
       </button>
     </div>
@@ -276,25 +319,25 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
     <div style={overlay}>
       <div style={sheet}>
         {/* Header */}
-        <div style={{ fontSize: "10px", color: C.sub, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: "4px" }}>Ending shift</div>
-        <div style={{ fontSize: "18px", fontWeight: "700", color: C.red, marginBottom: "16px" }}>
+        <div style={{ fontSize: "12px", color: C.sub, fontWeight: "600", marginBottom: "4px", fontFamily: FONT }}>Ending shift</div>
+        <div style={{ fontSize: "20px", fontWeight: "800", color: C.red, marginBottom: "16px", fontFamily: FONT }}>
           {step === "summary" ? "Shift Complete" : step === "mileage" ? "Mileage" : step === "fuel" ? "Fuel Fill-Up?" : step === "tolls" ? "Tolls & Charges?" : "Other Expenses?"}
         </div>
 
         {/* Progress */}
         <div style={{ display: "flex", gap: "5px", marginBottom: "22px" }}>
           {steps.map((s, i) => (
-            <div key={s} style={{ flex: 1, height: "3px", borderRadius: "2px", background: i <= stepIdx ? C.accent : C.muted }} />
+            <div key={s} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= stepIdx ? C.accent : C.border }} />
           ))}
         </div>
 
         {/* Step: mileage */}
         {step === "mileage" && (
           <>
-            <div style={{ background: C.card, borderRadius: "7px", padding: "14px", marginBottom: "18px", fontSize: "12px", color: C.sub, lineHeight: "1.9" }}>
-              <div>Started: <span style={{ color: C.text }}>{timeStr(shift.startTs)} · {dateStr(shift.startTs)}</span></div>
+            <div style={{ background: C.light, borderRadius: "12px", padding: "14px", marginBottom: "18px", fontSize: "13px", color: C.sub, lineHeight: "1.9", fontFamily: FONT }}>
+              <div>Started: <span style={{ color: C.text, fontWeight: "600" }}>{timeStr(shift.startTs)} · {dateStr(shift.startTs)}</span></div>
               <div>Duration: <span style={{ color: C.accent, fontWeight: "700" }}>{minsToHHMM(shiftMins)}</span></div>
-              <div>Jobs logged: <span style={{ color: C.text }}>{shiftJobs.length}</span></div>
+              <div>Jobs logged: <span style={{ color: C.text, fontWeight: "600" }}>{shiftJobs.length}</span></div>
             </div>
 
             {shift.mileageMode === "trip" && (
@@ -336,7 +379,7 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
             )}
 
             <Btn onClick={nextFromMileage} color={C.accent}>Next →</Btn>
-            <button onClick={onCancel} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", marginTop: "12px", cursor: "pointer", fontFamily: "inherit", width: "100%", textAlign: "center" }}>
+            <button onClick={onCancel} style={{ background: "none", border: "none", color: C.muted, fontSize: "13px", marginTop: "12px", cursor: "pointer", fontFamily: FONT, width: "100%", textAlign: "center" }}>
               Cancel — keep shift open
             </button>
           </>
@@ -467,25 +510,29 @@ export default function App() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'DM Mono','Courier New',monospace", paddingBottom: "72px" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: FONT, paddingBottom: "72px" }}>
 
       {/* Header */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "15px 20px 12px", display: "flex", alignItems: "center", gap: "12px" }}>
+      <div style={{
+        background: C.surface, borderBottom: `1px solid ${C.border}`,
+        padding: "14px 20px 12px", display: "flex", alignItems: "center", gap: "12px",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+      }}>
         <img src="/logo.png" alt="Driver Ledger" style={{ width: "36px", height: "36px", borderRadius: "8px", objectFit: "contain" }} />
         <div>
-          <div style={{ fontSize: "13px", fontWeight: "700", letterSpacing: "0.14em", textTransform: "uppercase", color: C.accent }}>Driver Ledger</div>
-          <div style={{ fontSize: "10px", color: C.sub }}>Private Hire Driver · Business Manager</div>
+          <div style={{ fontSize: "17px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Driver Ledger</div>
+          <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Private Hire · Business Manager</div>
         </div>
         {activeShift && (
-          <div style={{ marginLeft: "auto" }}>
-            <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: C.green, boxShadow: `0 0 8px ${C.green}`, display: "inline-block", marginRight: "6px" }} />
-            <span style={{ fontSize: "10px", color: C.green, letterSpacing: "0.08em", textTransform: "uppercase" }}>On Shift</span>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 10px" }}>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.green }} />
+            <span style={{ fontSize: "11px", color: C.green, fontWeight: "600", fontFamily: FONT }}>On Shift</span>
           </div>
         )}
       </div>
 
       {/* Content */}
-      <div style={{ padding: "20px" }}>
+      <div style={{ padding: "16px" }}>
         {tab === "dashboard" && (
           <Dashboard
             jobs={jobs} expenses={expenses} fuelLogs={fuelLogs} shifts={shifts}
@@ -501,17 +548,21 @@ export default function App() {
       </div>
 
       {/* Bottom nav */}
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex" }}>
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        background: C.surface, borderTop: `1px solid ${C.border}`,
+        display: "flex", boxShadow: "0 -2px 10px rgba(0,0,0,0.06)",
+      }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             flex: 1, padding: "10px 4px 8px", background: "none", border: "none",
-            color: tab === t.id ? C.accent : C.sub, cursor: "pointer",
+            color: tab === t.id ? C.accent : C.muted, cursor: "pointer",
             display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
             borderTop: `2px solid ${tab === t.id ? C.accent : "transparent"}`,
-            fontFamily: "'DM Mono','Courier New',monospace",
+            fontFamily: FONT, transition: "color 0.15s",
           }}>
-            <span style={{ fontSize: "17px" }}>{t.icon}</span>
-            <span style={{ fontSize: "9px", letterSpacing: "0.08em", textTransform: "uppercase" }}>{t.label}</span>
+            <span style={{ fontSize: "18px" }}>{t.icon}</span>
+            <span style={{ fontSize: "10px", fontWeight: tab === t.id ? "700" : "500" }}>{t.label}</span>
           </button>
         ))}
       </div>
@@ -569,66 +620,65 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
       {/* SHIFT BUTTON — front and centre */}
       {!activeShift ? (
         <button onClick={onStartShift} style={{
-          width: "100%", padding: "22px", marginBottom: "22px",
-          background: `linear-gradient(135deg, ${C.green}22, ${C.green}08)`,
-          border: `2px solid ${C.green}`,
-          borderRadius: "10px", cursor: "pointer", color: C.green,
-          fontFamily: "'DM Mono','Courier New',monospace",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: "12px",
+          width: "100%", padding: "22px", marginBottom: "20px",
+          background: `linear-gradient(135deg, #16A34A, #15803D)`,
+          border: "none", borderRadius: "16px", cursor: "pointer", color: "#fff",
+          fontFamily: FONT, boxShadow: "0 4px 16px rgba(22,163,74,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: "14px",
         }}>
-          <span style={{ fontSize: "28px" }}>🟢</span>
+          <span style={{ fontSize: "30px" }}>🟢</span>
           <div style={{ textAlign: "left" }}>
-            <div style={{ fontSize: "16px", fontWeight: "700", letterSpacing: "0.1em", textTransform: "uppercase" }}>Start Shift</div>
-            <div style={{ fontSize: "11px", color: C.sub, marginTop: "2px" }}>Tap to clock on and begin tracking</div>
+            <div style={{ fontSize: "18px", fontWeight: "800" }}>Start Shift</div>
+            <div style={{ fontSize: "12px", opacity: 0.85, marginTop: "2px" }}>Tap to clock on and begin tracking</div>
           </div>
         </button>
       ) : (
-        <div style={{ marginBottom: "22px" }}>
-          {/* Active shift banner */}
-          <div style={{ background: `linear-gradient(135deg, ${C.green}18, ${C.green}05)`, border: `1px solid ${C.green}44`, borderRadius: "10px", padding: "16px", marginBottom: "10px" }}>
+        <div style={{ marginBottom: "20px" }}>
+          <div style={{
+            background: `linear-gradient(135deg, #16A34A, #15803D)`,
+            borderRadius: "16px", padding: "18px", marginBottom: "10px",
+            boxShadow: "0 4px 16px rgba(22,163,74,0.25)", color: "#fff",
+          }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
               <div>
-                <div style={{ fontSize: "10px", color: C.green, letterSpacing: "0.12em", textTransform: "uppercase" }}>● Shift Active</div>
-                <div style={{ fontSize: "22px", fontWeight: "700", color: C.accent, marginTop: "2px" }}>{elapsed}</div>
+                <div style={{ fontSize: "12px", opacity: 0.85, fontWeight: "600", fontFamily: FONT }}>● SHIFT ACTIVE</div>
+                <div style={{ fontSize: "28px", fontWeight: "800", marginTop: "2px", fontFamily: FONT }}>{elapsed}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "10px", color: C.sub }}>Started</div>
-                <div style={{ fontSize: "14px", color: C.text }}>{timeStr(activeShift.startTs)}</div>
-                <div style={{ fontSize: "10px", color: C.sub }}>{dateStr(activeShift.startTs)}</div>
+                <div style={{ fontSize: "11px", opacity: 0.75, fontFamily: FONT }}>Started</div>
+                <div style={{ fontSize: "16px", fontWeight: "700", fontFamily: FONT }}>{timeStr(activeShift.startTs)}</div>
+                <div style={{ fontSize: "11px", opacity: 0.75, fontFamily: FONT }}>{dateStr(activeShift.startTs)}</div>
               </div>
             </div>
             {activeShift.mileageMode !== "skip" && (
-              <div style={{ fontSize: "10px", color: C.sub }}>
-                Mileage mode: <span style={{ color: C.text }}>{activeShift.mileageMode === "trip" ? "Trip meter" : "Odometer"}</span>
-                {activeShift.startOdometer && <span> · Start: {activeShift.startOdometer.toLocaleString()} mi</span>}
+              <div style={{ fontSize: "11px", opacity: 0.8, fontFamily: FONT }}>
+                Mileage: {activeShift.mileageMode === "trip" ? "Trip meter" : "Odometer"}
+                {activeShift.startOdometer && ` · Start: ${activeShift.startOdometer.toLocaleString()} mi`}
               </div>
             )}
           </div>
           <button onClick={onEndShift} style={{
             width: "100%", padding: "16px",
-            background: `linear-gradient(135deg, ${C.red}22, ${C.red}08)`,
-            border: `2px solid ${C.red}`,
-            borderRadius: "8px", cursor: "pointer", color: C.red,
-            fontFamily: "'DM Mono','Courier New',monospace",
-            fontSize: "13px", fontWeight: "700", letterSpacing: "0.1em", textTransform: "uppercase",
+            background: "#FFF5F5", border: `2px solid ${C.red}`,
+            borderRadius: "14px", cursor: "pointer", color: C.red,
+            fontFamily: FONT, fontSize: "15px", fontWeight: "700",
             display: "flex", alignItems: "center", justifyContent: "center", gap: "10px",
           }}>
-            <span>🔴</span> End Shift
+            🔴 End Shift
           </button>
         </div>
       )}
 
       {/* Range selector */}
-      <div style={{ display: "flex", gap: "6px", marginBottom: "16px" }}>
+      <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
         {ranges.map(r => (
           <button key={r.id} onClick={() => setRange(r.id)} style={{
-            flex: 1, padding: "7px 4px",
-            background: range === r.id ? C.accent : C.card,
-            color: range === r.id ? "#080808" : C.sub,
-            border: `1px solid ${range === r.id ? C.accent : C.border}`,
-            borderRadius: "5px", fontSize: "10px", letterSpacing: "0.08em",
-            textTransform: "uppercase", fontWeight: "700",
-            fontFamily: "'DM Mono','Courier New',monospace", cursor: "pointer",
+            flex: 1, padding: "8px 4px",
+            background: range === r.id ? C.accent : "transparent",
+            color: range === r.id ? "#fff" : C.sub,
+            border: "none", borderRadius: "9px",
+            fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer",
+            transition: "all 0.15s",
           }}>{r.label}</button>
         ))}
       </div>
@@ -669,11 +719,11 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
       )}
 
       {/* HMRC */}
-      <div style={{ background: "#0d1f14", border: `1px solid #1a5c35`, borderRadius: "7px", padding: "14px" }}>
+      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "16px" }}>
         <SectionTitle>HMRC Mileage (Tax Year)</SectionTitle>
         <Row label="Business miles logged" value={`${allBusinessMiles.toFixed(0)} mi`} />
         <Row label="Claimable allowance" value={fmt(hmrc)} color={C.green} bold />
-        <div style={{ fontSize: "10px", color: C.sub, marginTop: "8px" }}>Based on shift mileage logs. First 10,000 mi @ 45p, then 25p.</div>
+        <div style={{ fontSize: "12px", color: C.sub, marginTop: "10px", fontFamily: FONT }}>Based on shift mileage logs. First 10,000 mi @ 45p, then 25p.</div>
       </div>
     </div>
   );
@@ -772,7 +822,7 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
   return (
     <div>
       {activeShift && (
-        <div style={{ background: C.green + "12", border: `1px solid ${C.green}33`, borderRadius: "6px", padding: "10px 14px", marginBottom: "16px", fontSize: "11px", color: C.green }}>
+        <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px", fontSize: "13px", color: C.green, fontWeight: "600", fontFamily: FONT }}>
           ● Shift active — jobs added will be linked to this shift
         </div>
       )}
@@ -985,10 +1035,10 @@ function Mileage({ jobs, shifts, fuelLogs }) {
         </div>
       )}
 
-      <div style={{ background: "#0d1f14", border: `1px solid #1a5c35`, borderRadius: "7px", padding: "14px" }}>
+      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "16px" }}>
         <SectionTitle>HMRC Tip</SectionTitle>
-        <div style={{ fontSize: "12px", color: C.sub, lineHeight: "1.8" }}>
-          Mileage allowance is claimed <span style={{ color: C.green }}>instead of</span> actual fuel costs — not in addition to. Most drivers find the allowance more beneficial. Always consult your accountant for self-assessment.
+        <div style={{ fontSize: "13px", color: C.sub, lineHeight: "1.8", fontFamily: FONT }}>
+          Mileage allowance is claimed <span style={{ color: C.green, fontWeight: "600" }}>instead of</span> actual fuel costs — not in addition to. Most drivers find the allowance more beneficial. Always consult your accountant for self-assessment.
         </div>
       </div>
     </div>
