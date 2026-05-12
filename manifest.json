@@ -1,0 +1,17 @@
+{
+  "name": "PHD Tracker",
+  "short_name": "PHD Tracker",
+  "description": "Private Hire Driver Business Manager",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080808",
+  "theme_color": "#080808",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
