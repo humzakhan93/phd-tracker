@@ -471,7 +471,7 @@ export default function App() {
 
       {/* Header */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "15px 20px 12px", display: "flex", alignItems: "center", gap: "12px" }}>
-        <span style={{ fontSize: "22px" }}>🚖</span>
+        <img src="/logo.png" alt="PHD Tracker" style={{ width: "36px", height: "36px", borderRadius: "8px", objectFit: "contain" }} />
         <div>
           <div style={{ fontSize: "13px", fontWeight: "700", letterSpacing: "0.14em", textTransform: "uppercase", color: C.accent }}>PHD Tracker</div>
           <div style={{ fontSize: "10px", color: C.sub }}>Private Hire Driver · Business Manager</div>
