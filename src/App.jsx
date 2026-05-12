@@ -503,10 +503,10 @@ export default function App() {
 
   const tabs = [
     { id: "dashboard", label: "Home", icon: "🏠" },
-    { id: "calc", label: "Calc", icon: "⚡" },
     { id: "jobs", label: "Jobs", icon: "🚖" },
     { id: "expenses", label: "Costs", icon: "🧾" },
     { id: "mileage", label: "Miles", icon: "🛣️" },
+    { id: "calc", label: "Fare Check", icon: "⚡" },
   ];
 
   return (
@@ -769,7 +769,13 @@ function Calculator({ settings, jobs, setJobs, activeShift }) {
 
   return (
     <div>
-      <SectionTitle>Job Worth Calculator</SectionTitle>
+      <SectionTitle>Is It Worth It?</SectionTitle>
+      <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "12px", padding: "14px", marginBottom: "16px" }}>
+        <div style={{ fontSize: "13px", color: C.blue, fontWeight: "600", marginBottom: "4px", fontFamily: FONT }}>When to use this</div>
+        <div style={{ fontSize: "13px", color: C.sub, lineHeight: "1.7", fontFamily: FONT }}>
+          Use this before accepting a planned job or airport run. Enter the fare, distance and your dead miles to see your real take-home after fuel and operator cut.
+        </div>
+      </div>
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "7px", padding: "16px", marginBottom: "16px" }}>
         <div style={{ fontSize: "11px", color: C.sub, marginBottom: "12px" }}>Fuel cost: <span style={{ color: C.accent }}>£{settings.fuelCostPerMile.toFixed(2)}/mi</span> — update in Costs tab</div>
         <Select label="Operator" options={OPERATORS} value={form.operator} onChange={e => set("operator", e.target.value)} />
