@@ -457,7 +457,102 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
     </div>
   );
 }
+function AuthScreen({ authMode, setAuthMode }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
+  async function handleAuth() {
+    setBusy(true);
+    setMessage("");
+
+    const result =
+      authMode === "login"
+        ? await supabase.auth.signInWithPassword({ email, password })
+        : await supabase.auth.signUp({ email, password });
+
+    if (result.error) {
+      setMessage(result.error.message);
+    } else if (authMode === "signup") {
+      setMessage("Account created. Please check your email to confirm your account.");
+    }
+
+    setBusy(false);
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: C.bg,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "24px",
+      fontFamily: FONT
+    }}>
+      <div style={{
+        width: "100%",
+        maxWidth: "420px",
+        background: C.card,
+        border: `1px solid ${C.border}`,
+        borderRadius: "22px",
+        padding: "26px",
+        boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)"
+      }}>
+        <h1 style={{ margin: 0, fontSize: "28px", color: C.text }}>Driver Ledger</h1>
+        <p style={{ marginTop: "8px", color: C.sub }}>
+          Sign in to securely save your jobs, shifts, expenses and mileage in the cloud.
+        </p>
+
+        <div style={{ display: "grid", gap: "12px", marginTop: "24px" }}>
+          <input
+            style={inputStyle}
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <input
+            style={inputStyle}
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+
+          <Btn onClick={handleAuth} disabled={busy || !email || !password}>
+            {busy ? "Please wait..." : authMode === "login" ? "Log in" : "Create account"}
+          </Btn>
+
+          {message && (
+            <p style={{ color: C.sub, fontSize: "14px", lineHeight: 1.5 }}>
+              {message}
+            </p>
+          )}
+
+          <button
+            onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
+            style={{
+              background: "none",
+              border: "none",
+              color: C.blue,
+              fontWeight: "700",
+              cursor: "pointer",
+              fontFamily: FONT,
+              marginTop: "8px"
+            }}
+          >
+            {authMode === "login"
+              ? "Need an account? Create one"
+              : "Already have an account? Log in"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
     const [session, setSession] = useState(null);
