@@ -616,7 +616,10 @@ export default function App() {
     { id: "mileage", label: "Miles", icon: "🛣️" },
     { id: "calc", label: "Fare Check", icon: "⚡" },
   ];
-
+async function handleLogout() {
+  await supabase.auth.signOut();
+  setSession(null);
+}
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: FONT, paddingBottom: "72px" }}>
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "14px 20px 12px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -624,6 +627,7 @@ export default function App() {
         <div>
           <div style={{ fontSize: "17px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Driver Ledger</div>
           <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Private Hire · Business Manager</div>
+          <Btn onClick={handleLogout}>Log out</Btn>
         </div>
         {activeShift && (
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 10px" }}>
