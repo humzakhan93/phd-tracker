@@ -637,8 +637,10 @@ export default function App() {
     }
   }
 
-  async function saveCloudData() {
+   async function saveCloudData() {
     if (!session?.user?.id) return;
+
+    setCloudStatus("Saving...");
 
     const payload = {
       user_id: session.user.id,
@@ -657,8 +659,11 @@ export default function App() {
 
     if (error) {
       console.error("Cloud save error:", error);
+      setCloudStatus("Save failed");
+    } else {
+      setCloudStatus("Saved to cloud");
     }
-  }
+   }
     useEffect(() => {
     if (session?.user?.id) {
       loadCloudData();
