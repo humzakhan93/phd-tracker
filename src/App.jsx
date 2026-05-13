@@ -636,6 +636,11 @@ export default function App() {
       console.error("Cloud save error:", error);
     }
   }
+    useEffect(() => {
+    if (session?.user?.id) {
+      loadCloudData();
+    }
+  }, [session?.user?.id]);
   if (authLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
