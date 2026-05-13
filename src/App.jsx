@@ -460,6 +460,9 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+    const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState("login");
   const [tab, setTab] = useState("dashboard");
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
