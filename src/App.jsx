@@ -580,6 +580,14 @@ export default function App() {
     });
         return () => subscription.unsubscribe();
           }, []);
+
+
+  useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
+  useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
+  useEffect(() => { save("phd_fuel", fuelLogs); }, [fuelLogs]);
+  useEffect(() => { save("phd_shifts", shifts); }, [shifts]);
+  useEffect(() => { save("phd_active_shift", activeShift); }, [activeShift]);
+  useEffect(() => { save("phd_settings", settings); }, [settings]);
   if (authLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
@@ -591,14 +599,6 @@ export default function App() {
   if (!session) {
     return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
   }
-
-
-  useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
-  useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
-  useEffect(() => { save("phd_fuel", fuelLogs); }, [fuelLogs]);
-  useEffect(() => { save("phd_shifts", shifts); }, [shifts]);
-  useEffect(() => { save("phd_active_shift", activeShift); }, [activeShift]);
-  useEffect(() => { save("phd_settings", settings); }, [settings]);
 
   function handleStartShift(shiftData) { setActiveShift(shiftData); setShowStart(false); }
   function handleEndShift({ endTs, shiftMiles, endOdometer, fuelLog, expenses: newExp }) {
