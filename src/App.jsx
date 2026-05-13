@@ -730,7 +730,7 @@ async function handleLogout() {
         {tab === "dashboard" && <Dashboard jobs={jobs} expenses={expenses} fuelLogs={fuelLogs} shifts={shifts} activeShift={activeShift} settings={settings} onStartShift={() => setShowStart(true)} onEndShift={() => setShowEnd(true)} />}
         {tab === "jobs" && <Jobs jobs={jobs} setJobs={setJobs} settings={settings} activeShift={activeShift} />}
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} settings={settings} setSettings={setSettings} />}
-        {tab === "mileage" && <Mileage jobs={jobs} shifts={shifts} fuelLogs={fuelLogs} />}
+        {tab === "mileage" && <Mileage jobs={jobs} shifts={shifts} setShifts={setShifts} fuelLogs={fuelLogs} />}
         {tab === "calc" && <FareCheck settings={settings} jobs={jobs} setJobs={setJobs} activeShift={activeShift} />}
       </div>
 
@@ -1315,7 +1315,7 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
 }
 
 // ─── Mileage ──────────────────────────────────────────────────────────────────
-function Mileage({ jobs, shifts, fuelLogs }) {
+function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
   const totalBusiness = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
   const totalJob = jobs.reduce((s, j) => s + (j.jobMiles || 0), 0);
   const totalDead = jobs.reduce((s, j) => s + (j.deadMiles || 0), 0);
@@ -1359,15 +1359,26 @@ function Mileage({ jobs, shifts, fuelLogs }) {
         {shifts.length === 0
           ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>No completed shifts yet. Use Start Shift on the home tab.</div>
           : shifts.slice(0, 10).map(sh => (
-            <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
-                <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>{sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}</span>
-              </div>
-              <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
-                {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
-              </div>
-            </div>
+           <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: "10px" }}>
+  <div style={{ flex: 1 }}>
+    <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
+      <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>
+        {sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}
+      </span>
+    </div>
+    <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
+      {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
+    </div>
+  </div>
+
+  <button
+    onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))}
+    style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}
+  >
+    ✕
+  </button>
+</div>
           ))
         }
       </div>
