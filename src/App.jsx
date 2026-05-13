@@ -559,6 +559,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState("login");
   const [tab, setTab] = useState("dashboard");
+  const [cloudStatus, setCloudStatus] = useState("Saved to cloud");
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
   const [fuelLogs, setFuelLogs] = useState(() => load("phd_fuel", []));
