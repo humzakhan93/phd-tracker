@@ -602,6 +602,28 @@ export default function App() {
       return;
     }
 
+    const hasLocalData =
+      jobs.length > 0 ||
+      expenses.length > 0 ||
+      fuelLogs.length > 0 ||
+      shifts.length > 0 ||
+      activeShift;
+
+    const cloudIsEmpty =
+      !data ||
+      (
+        (!data.jobs || data.jobs.length === 0) &&
+        (!data.expenses || data.expenses.length === 0) &&
+        (!data.fuel_logs || data.fuel_logs.length === 0) &&
+        (!data.shifts || data.shifts.length === 0) &&
+        !data.active_shift
+      );
+
+    if (cloudIsEmpty && hasLocalData) {
+      await saveCloudData();
+      return;
+    }
+
     if (data) {
       setJobs(data.jobs || []);
       setExpenses(data.expenses || []);
