@@ -641,6 +641,11 @@ export default function App() {
       loadCloudData();
     }
   }, [session?.user?.id]);
+    useEffect(() => {
+    if (session?.user?.id) {
+      saveCloudData();
+    }
+  }, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id]);
   if (authLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
