@@ -472,7 +472,20 @@ export default function App() {
   const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18 }));
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
   useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
   useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
   useEffect(() => { save("phd_fuel", fuelLogs); }, [fuelLogs]);
