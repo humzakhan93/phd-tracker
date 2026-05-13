@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const OPERATORS = ["Uber", "Bolt", "Airport Transfer", "Local Operator", "Other"];
