@@ -578,9 +578,21 @@ export default function App() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
+        return () => subscription.unsubscribe();
+          }, []);
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
+        Loading...
+      </div>
+    );
+  }
 
-    return () => subscription.unsubscribe();
-  }, []);
+  if (!session) {
+    return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
+  }
+
+
   useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
   useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
   useEffect(() => { save("phd_fuel", fuelLogs); }, [fuelLogs]);
