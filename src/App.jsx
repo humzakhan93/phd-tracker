@@ -588,6 +588,54 @@ export default function App() {
   useEffect(() => { save("phd_shifts", shifts); }, [shifts]);
   useEffect(() => { save("phd_active_shift", activeShift); }, [activeShift]);
   useEffect(() => { save("phd_settings", settings); }, [settings]);
+    async function loadCloudData() {
+    if (!session?.user?.id) return;
+
+    const { data, error } = await supabase
+      .from("app_data")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Cloud load error:", error);
+      return;
+    }
+
+    if (data) {
+      setJobs(data.jobs || []);
+      setExpenses(data.expenses || []);
+      setFuelLogs(data.fuel_logs || []);
+      setShifts(data.shifts || []);
+      setActiveShift(data.active_shift || null);
+      setSettings(data.settings || { fuelCostPerMile: 0.18 });
+    } else {
+      await saveCloudData();
+    }
+  }
+
+  async function saveCloudData() {
+    if (!session?.user?.id) return;
+
+    const payload = {
+      user_id: session.user.id,
+      jobs,
+      expenses,
+      fuel_logs: fuelLogs,
+      shifts,
+      active_shift: activeShift,
+      settings,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("app_data")
+      .upsert(payload, { onConflict: "user_id" });
+
+    if (error) {
+      console.error("Cloud save error:", error);
+    }
+  }
   if (authLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
