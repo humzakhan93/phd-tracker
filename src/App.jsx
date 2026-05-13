@@ -713,6 +713,9 @@ async function handleLogout() {
         <div>
           <div style={{ fontSize: "17px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Driver Ledger</div>
           <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Private Hire · Business Manager</div>
+          <div style={{ fontSize: "10px", color: cloudStatus === "Save failed" ? C.red : C.green, fontFamily: FONT, marginTop: "3px", fontWeight: "600" }}>
+  {cloudStatus}
+</div>
           <Btn onClick={handleLogout}>Log out</Btn>
         </div>
         {activeShift && (
