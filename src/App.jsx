@@ -575,7 +575,7 @@ export default function App() {
   const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18 }));
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
-  useEffect(() => {
+useEffect(() => {
   supabase.auth.getSession().then(({ data: { session } }) => {
     setSession(session);
     setCloudLoaded(false);
@@ -584,9 +584,12 @@ export default function App() {
 
   const {
     data: { subscription },
-  } = supabase.auth.onAuthStateChange((_event, session) => {
+  } = supabase.auth.onAuthStateChange((event, session) => {
     setSession(session);
-    setCloudLoaded(false);
+
+    if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+      setCloudLoaded(false);
+    }
   });
 
   return () => subscription.unsubscribe();
@@ -611,6 +614,7 @@ export default function App() {
     if (error && error.code !== "PGRST116") {
   console.error("Cloud load error:", error);
   setCloudStatus("Cloud load failed");
+  setCloudLoaded(true);
   return;
 }
 
@@ -677,11 +681,11 @@ export default function App() {
       setCloudStatus("Saved to cloud");
     }
    }
-    useEffect(() => {
-    if (session?.user?.id) {
-      loadCloudData();
-    }
-  }, [session?.user?.id]);
+  useEffect(() => {
+  if (session?.user?.id && !cloudLoaded) {
+    loadCloudData();
+  }
+}, [session?.user?.id, cloudLoaded]);
     useEffect(() => {
   if (session?.user?.id && cloudLoaded) {
     saveCloudData();
