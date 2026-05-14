@@ -560,6 +560,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState("login");
   const [tab, setTab] = useState("dashboard");
   const [cloudStatus, setCloudStatus] = useState("Saved to cloud");
+  const [cloudLoaded, setCloudLoaded] = useState(false);
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
   const [fuelLogs, setFuelLogs] = useState(() => load("phd_fuel", []));
@@ -569,18 +570,21 @@ export default function App() {
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    setSession(session);
+    setCloudLoaded(false);
+    setAuthLoading(false);
+  });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-        return () => subscription.unsubscribe();
-          }, []);
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    setSession(session);
+    setCloudLoaded(false);
+  });
+
+  return () => subscription.unsubscribe();
+}, []);
 
 
   useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
@@ -599,9 +603,10 @@ export default function App() {
       .single();
 
     if (error && error.code !== "PGRST116") {
-      console.error("Cloud load error:", error);
-      return;
-    }
+  console.error("Cloud load error:", error);
+  setCloudStatus("Cloud load failed");
+  return;
+}
 
     const hasLocalData =
       jobs.length > 0 ||
@@ -635,6 +640,7 @@ export default function App() {
     } else {
       await saveCloudData();
     }
+    setCloudLoaded(true);
   }
 
    async function saveCloudData() {
@@ -670,10 +676,10 @@ export default function App() {
     }
   }, [session?.user?.id]);
     useEffect(() => {
-    if (session?.user?.id) {
-      saveCloudData();
-    }
-  }, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id]);
+  if (session?.user?.id && cloudLoaded) {
+    saveCloudData();
+  }
+}, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id, cloudLoaded]);
   if (authLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
@@ -704,6 +710,7 @@ export default function App() {
   ];
 async function handleLogout() {
   await supabase.auth.signOut();
+  setCloudLoaded(false);
   setSession(null);
 }
   return (
