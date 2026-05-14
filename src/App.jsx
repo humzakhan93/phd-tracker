@@ -886,6 +886,11 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 function Jobs({ jobs, setJobs, settings, activeShift }) {
   const [logMode, setLogMode] = useState("job"); // job | day
+  useEffect(() => {
+  if (logMode === "notes") {
+    setLogMode("job");
+  }
+}, [logMode]);
   const [dayForm, setDayForm] = useState({ date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" });
   const [notesText, setNotesText] = useState("");
   const [parsing, setParsing] = useState(false);
