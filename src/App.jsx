@@ -464,12 +464,6 @@ function AuthScreen({ authMode, setAuthMode }) {
   const [message, setMessage] = useState("");
 
   async function handleAuth() {
-    async function handleForgotPassword() {
-  if (!email) {
-    setMessage("Enter your email address first, then click Forgot password.");
-    return;
-  }
-
   setBusy(true);
   setMessage("");
 
@@ -501,7 +495,27 @@ function AuthScreen({ authMode, setAuthMode }) {
 
     setBusy(false);
   }
+async function handleForgotPassword() {
+  if (!email) {
+    setMessage("Enter your email address first, then click Forgot password.");
+    return;
+  }
 
+  setBusy(true);
+  setMessage("");
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  });
+
+  if (error) {
+    setMessage(error.message);
+  } else {
+    setMessage("Password reset email sent. Please check your inbox.");
+  }
+
+  setBusy(false);
+}
   return (
     <div style={{
       minHeight: "100vh",
