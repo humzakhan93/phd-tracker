@@ -885,8 +885,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 function Jobs({ jobs, setJobs, settings, activeShift }) {
-  const [logMode, setLogMode] = useState("job"); // job | day | notes
-  const [jobForm, setJobForm] = useState({ date: today(), operator: "Uber", fare: "", isNet: "yes", commissionPct: "", jobMiles: "", deadMiles: "", minutes: "", notes: "" });
+  const [logMode, setLogMode] = useState("job"); // job | day
   const [dayForm, setDayForm] = useState({ date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" });
   const [notesText, setNotesText] = useState("");
   const [parsing, setParsing] = useState(false);
@@ -984,7 +983,7 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
 
       {/* Mode selector */}
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
-        {[{ id: "job", label: "By Job" }, { id: "day", label: "By Day" }, { id: "notes", label: "Paste Notes" }].map(m => (
+        {[{ id: "job", label: "By Job" }, { id: "day", label: "By Day" }].map(m => (
           <button key={m.id} onClick={() => setLogMode(m.id)} style={{ flex: 1, padding: "9px 4px", background: logMode === m.id ? C.accent : "transparent", color: logMode === m.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{m.label}</button>
         ))}
       </div>
