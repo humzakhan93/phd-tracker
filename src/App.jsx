@@ -464,21 +464,6 @@ function AuthScreen({ authMode, setAuthMode }) {
   const [message, setMessage] = useState("");
 
   async function handleAuth() {
-  setBusy(true);
-  setMessage("");
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin,
-  });
-
-  if (error) {
-    setMessage(error.message);
-  } else {
-    setMessage("Password reset email sent. Please check your inbox.");
-  }
-
-  setBusy(false);
-}
     setBusy(true);
     setMessage("");
 
@@ -495,27 +480,29 @@ function AuthScreen({ authMode, setAuthMode }) {
 
     setBusy(false);
   }
-async function handleForgotPassword() {
-  if (!email) {
-    setMessage("Enter your email address first, then click Forgot password.");
-    return;
+
+  async function handleForgotPassword() {
+    if (!email) {
+      setMessage("Enter your email address first, then click Forgot password.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setMessage("Password reset email sent. Please check your inbox.");
+    }
+
+    setBusy(false);
   }
 
-  setBusy(true);
-  setMessage("");
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin,
-  });
-
-  if (error) {
-    setMessage(error.message);
-  } else {
-    setMessage("Password reset email sent. Please check your inbox.");
-  }
-
-  setBusy(false);
-}
   return (
     <div style={{
       minHeight: "100vh",
@@ -548,8 +535,8 @@ async function handleForgotPassword() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => {
-  if (e.key === "Enter") handleAuth();
-}}
+              if (e.key === "Enter") handleAuth();
+            }}
           />
 
           <input
@@ -559,8 +546,8 @@ async function handleForgotPassword() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => {
-  if (e.key === "Enter") handleAuth();
-}}
+              if (e.key === "Enter") handleAuth();
+            }}
           />
 
           <Btn onClick={handleAuth} disabled={busy || !email || !password}>
@@ -572,23 +559,25 @@ async function handleForgotPassword() {
               {message}
             </p>
           )}
-{authMode === "login" && (
-  <button
-    onClick={handleForgotPassword}
-    disabled={busy}
-    style={{
-      background: "none",
-      border: "none",
-      color: C.sub,
-      fontWeight: "600",
-      cursor: busy ? "not-allowed" : "pointer",
-      fontFamily: FONT,
-      marginTop: "4px"
-    }}
-  >
-    Forgot password?
-  </button>
-)}
+
+          {authMode === "login" && (
+            <button
+              onClick={handleForgotPassword}
+              disabled={busy}
+              style={{
+                background: "none",
+                border: "none",
+                color: C.sub,
+                fontWeight: "600",
+                cursor: busy ? "not-allowed" : "pointer",
+                fontFamily: FONT,
+                marginTop: "4px"
+              }}
+            >
+              Forgot password?
+            </button>
+          )}
+
           <button
             onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
             style={{
