@@ -512,6 +512,9 @@ function AuthScreen({ authMode, setAuthMode }) {
             placeholder="Email address"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => {
+  if (e.key === "Enter") handleAuth();
+}}
           />
 
           <input
@@ -520,6 +523,9 @@ function AuthScreen({ authMode, setAuthMode }) {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+  if (e.key === "Enter") handleAuth();
+}}
           />
 
           <Btn onClick={handleAuth} disabled={busy || !email || !password}>
