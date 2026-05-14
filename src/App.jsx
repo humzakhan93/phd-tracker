@@ -891,6 +891,17 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
     setLogMode("job");
   }
 }, [logMode]);
+  const [jobForm, setJobForm] = useState({
+    date: today(),
+    operator: "Uber",
+    fare: "",
+    isNet: "yes",
+    commissionPct: "",
+    jobMiles: "",
+    deadMiles: "",
+    minutes: "",
+    notes: ""
+  });
   const [dayForm, setDayForm] = useState({ date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" });
   const [notesText, setNotesText] = useState("");
   const [parsing, setParsing] = useState(false);
