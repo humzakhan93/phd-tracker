@@ -632,9 +632,10 @@ export default function App() {
       );
 
     if (cloudIsEmpty && hasLocalData) {
-      await saveCloudData();
-      return;
-    }
+  await saveCloudData();
+  setCloudLoaded(true);
+  return;
+}
 
     if (data) {
       setJobs(data.jobs || []);
@@ -697,6 +698,13 @@ export default function App() {
   if (!session) {
     return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
   }
+  if (!cloudLoaded) {
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
+      Loading your cloud data...
+    </div>
+  );
+}
 
   function handleStartShift(shiftData) { setActiveShift(shiftData); setShowStart(false); }
   function handleEndShift({ endTs, shiftMiles, endOdometer, fuelLog, expenses: newExp }) {
