@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const OPERATORS = ["Uber", "Bolt", "Airport Transfer", "Local Operator", "Other"];
@@ -456,10 +457,156 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
     </div>
   );
 }
+function AuthScreen({ authMode, setAuthMode }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
+  async function handleAuth() {
+    setBusy(true);
+    setMessage("");
+
+    const result =
+      authMode === "login"
+        ? await supabase.auth.signInWithPassword({ email, password })
+        : await supabase.auth.signUp({ email, password });
+
+    if (result.error) {
+      setMessage(result.error.message);
+    } else if (authMode === "signup") {
+      setMessage("Account created. Please check your email to confirm your account.");
+    }
+
+    setBusy(false);
+  }
+
+  async function handleForgotPassword() {
+    if (!email) {
+      setMessage("Enter your email address first, then click Forgot password.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setMessage("Password reset email sent. Please check your inbox.");
+    }
+
+    setBusy(false);
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: C.bg,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "24px",
+      fontFamily: FONT
+    }}>
+      <div style={{
+        width: "100%",
+        maxWidth: "420px",
+        background: C.card,
+        border: `1px solid ${C.border}`,
+        borderRadius: "22px",
+        padding: "26px",
+        boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)"
+      }}>
+        <h1 style={{ margin: 0, fontSize: "28px", color: C.text }}>Driver Ledger</h1>
+        <p style={{ marginTop: "8px", color: C.sub }}>
+          Sign in to securely save your jobs, shifts, expenses and mileage in the cloud.
+        </p>
+
+        <div style={{ display: "grid", gap: "12px", marginTop: "24px" }}>
+          <input
+            style={inputStyle}
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAuth();
+            }}
+          />
+
+          <input
+            style={inputStyle}
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAuth();
+            }}
+          />
+
+          <Btn onClick={handleAuth} disabled={busy || !email || !password}>
+            {busy ? "Please wait..." : authMode === "login" ? "Log in" : "Create account"}
+          </Btn>
+
+          {message && (
+            <p style={{ color: C.sub, fontSize: "14px", lineHeight: 1.5 }}>
+              {message}
+            </p>
+          )}
+
+          {authMode === "login" && (
+            <button
+              onClick={handleForgotPassword}
+              disabled={busy}
+              style={{
+                background: "none",
+                border: "none",
+                color: C.sub,
+                fontWeight: "600",
+                cursor: busy ? "not-allowed" : "pointer",
+                fontFamily: FONT,
+                marginTop: "4px"
+              }}
+            >
+              Forgot password?
+            </button>
+          )}
+
+          <button
+            onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
+            style={{
+              background: "none",
+              border: "none",
+              color: C.blue,
+              fontWeight: "700",
+              cursor: "pointer",
+              fontFamily: FONT,
+              marginTop: "8px"
+            }}
+          >
+            {authMode === "login"
+              ? "Need an account? Create one"
+              : "Already have an account? Log in"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+    const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState("login");
   const [tab, setTab] = useState("dashboard");
+  const [cloudStatus, setCloudStatus] = useState("Saved to cloud");
+  const [cloudLoaded, setCloudLoaded] = useState(false);
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
   const [fuelLogs, setFuelLogs] = useState(() => load("phd_fuel", []));
@@ -468,6 +615,26 @@ export default function App() {
   const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18 }));
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
+useEffect(() => {
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    setSession(session);
+    setCloudLoaded(false);
+    setAuthLoading(false);
+  });
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((event, session) => {
+    setSession(session);
+
+    if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+      setCloudLoaded(false);
+    }
+  });
+
+  return () => subscription.unsubscribe();
+}, []);
+
 
   useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
   useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
@@ -475,6 +642,113 @@ export default function App() {
   useEffect(() => { save("phd_shifts", shifts); }, [shifts]);
   useEffect(() => { save("phd_active_shift", activeShift); }, [activeShift]);
   useEffect(() => { save("phd_settings", settings); }, [settings]);
+    async function loadCloudData() {
+    if (!session?.user?.id) return;
+
+    const { data, error } = await supabase
+      .from("app_data")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+  console.error("Cloud load error:", error);
+  setCloudStatus("Cloud load failed");
+  setCloudLoaded(true);
+  return;
+}
+
+    const hasLocalData =
+      jobs.length > 0 ||
+      expenses.length > 0 ||
+      fuelLogs.length > 0 ||
+      shifts.length > 0 ||
+      activeShift;
+
+    const cloudIsEmpty =
+      !data ||
+      (
+        (!data.jobs || data.jobs.length === 0) &&
+        (!data.expenses || data.expenses.length === 0) &&
+        (!data.fuel_logs || data.fuel_logs.length === 0) &&
+        (!data.shifts || data.shifts.length === 0) &&
+        !data.active_shift
+      );
+
+    if (cloudIsEmpty && hasLocalData) {
+  await saveCloudData();
+  setCloudLoaded(true);
+  return;
+}
+
+    if (data) {
+      setJobs(data.jobs || []);
+      setExpenses(data.expenses || []);
+      setFuelLogs(data.fuel_logs || []);
+      setShifts(data.shifts || []);
+      setActiveShift(data.active_shift || null);
+      setSettings(data.settings || { fuelCostPerMile: 0.18 });
+    } else {
+      await saveCloudData();
+    }
+    setCloudLoaded(true);
+  }
+
+   async function saveCloudData() {
+    if (!session?.user?.id) return;
+
+    setCloudStatus("Saving...");
+
+    const payload = {
+      user_id: session.user.id,
+      jobs,
+      expenses,
+      fuel_logs: fuelLogs,
+      shifts,
+      active_shift: activeShift,
+      settings,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("app_data")
+      .upsert(payload, { onConflict: "user_id" });
+
+    if (error) {
+      console.error("Cloud save error:", error);
+      setCloudStatus("Save failed");
+    } else {
+      setCloudStatus("Saved to cloud");
+    }
+   }
+  useEffect(() => {
+  if (session?.user?.id && !cloudLoaded) {
+    loadCloudData();
+  }
+}, [session?.user?.id, cloudLoaded]);
+    useEffect(() => {
+  if (session?.user?.id && cloudLoaded) {
+    saveCloudData();
+  }
+}, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id, cloudLoaded]);
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
+  }
+  if (!cloudLoaded) {
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
+      Loading your cloud data...
+    </div>
+  );
+}
 
   function handleStartShift(shiftData) { setActiveShift(shiftData); setShowStart(false); }
   function handleEndShift({ endTs, shiftMiles, endOdometer, fuelLog, expenses: newExp }) {
@@ -492,7 +766,11 @@ export default function App() {
     { id: "mileage", label: "Miles", icon: "🛣️" },
     { id: "calc", label: "Fare Check", icon: "⚡" },
   ];
-
+async function handleLogout() {
+  await supabase.auth.signOut();
+  setCloudLoaded(false);
+  setSession(null);
+}
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: FONT, paddingBottom: "72px" }}>
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "14px 20px 12px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -500,6 +778,10 @@ export default function App() {
         <div>
           <div style={{ fontSize: "17px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Driver Ledger</div>
           <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Private Hire · Business Manager</div>
+          <div style={{ fontSize: "10px", color: cloudStatus === "Save failed" ? C.red : C.green, fontFamily: FONT, marginTop: "3px", fontWeight: "600" }}>
+  {cloudStatus}
+</div>
+          <Btn onClick={handleLogout}>Log out</Btn>
         </div>
         {activeShift && (
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 10px" }}>
@@ -513,7 +795,7 @@ export default function App() {
         {tab === "dashboard" && <Dashboard jobs={jobs} expenses={expenses} fuelLogs={fuelLogs} shifts={shifts} activeShift={activeShift} settings={settings} onStartShift={() => setShowStart(true)} onEndShift={() => setShowEnd(true)} />}
         {tab === "jobs" && <Jobs jobs={jobs} setJobs={setJobs} settings={settings} activeShift={activeShift} />}
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} settings={settings} setSettings={setSettings} />}
-        {tab === "mileage" && <Mileage jobs={jobs} shifts={shifts} fuelLogs={fuelLogs} />}
+        {tab === "mileage" && <Mileage jobs={jobs} shifts={shifts} setShifts={setShifts} fuelLogs={fuelLogs} />}
         {tab === "calc" && <FareCheck settings={settings} jobs={jobs} setJobs={setJobs} activeShift={activeShift} />}
       </div>
 
@@ -661,8 +943,23 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 function Jobs({ jobs, setJobs, settings, activeShift }) {
-  const [logMode, setLogMode] = useState("job"); // job | day | notes
-  const [jobForm, setJobForm] = useState({ date: today(), operator: "Uber", fare: "", isNet: "yes", commissionPct: "", jobMiles: "", deadMiles: "", minutes: "", notes: "" });
+  const [logMode, setLogMode] = useState("job"); // job | day
+  useEffect(() => {
+  if (logMode === "notes") {
+    setLogMode("job");
+  }
+}, [logMode]);
+  const [jobForm, setJobForm] = useState({
+    date: today(),
+    operator: "Uber",
+    fare: "",
+    isNet: "yes",
+    commissionPct: "",
+    jobMiles: "",
+    deadMiles: "",
+    minutes: "",
+    notes: ""
+  });
   const [dayForm, setDayForm] = useState({ date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" });
   const [notesText, setNotesText] = useState("");
   const [parsing, setParsing] = useState(false);
@@ -760,7 +1057,7 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
 
       {/* Mode selector */}
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
-        {[{ id: "job", label: "By Job" }, { id: "day", label: "By Day" }, { id: "notes", label: "Paste Notes" }].map(m => (
+        {[{ id: "job", label: "By Job" }, { id: "day", label: "By Day" }].map(m => (
           <button key={m.id} onClick={() => setLogMode(m.id)} style={{ flex: 1, padding: "9px 4px", background: logMode === m.id ? C.accent : "transparent", color: logMode === m.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{m.label}</button>
         ))}
       </div>
@@ -1098,7 +1395,7 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
 }
 
 // ─── Mileage ──────────────────────────────────────────────────────────────────
-function Mileage({ jobs, shifts, fuelLogs }) {
+function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
   const totalBusiness = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
   const totalJob = jobs.reduce((s, j) => s + (j.jobMiles || 0), 0);
   const totalDead = jobs.reduce((s, j) => s + (j.deadMiles || 0), 0);
@@ -1142,15 +1439,26 @@ function Mileage({ jobs, shifts, fuelLogs }) {
         {shifts.length === 0
           ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>No completed shifts yet. Use Start Shift on the home tab.</div>
           : shifts.slice(0, 10).map(sh => (
-            <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
-                <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>{sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}</span>
-              </div>
-              <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
-                {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
-              </div>
-            </div>
+           <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: "10px" }}>
+  <div style={{ flex: 1 }}>
+    <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
+      <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>
+        {sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}
+      </span>
+    </div>
+    <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
+      {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
+    </div>
+  </div>
+
+  <button
+    onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))}
+    style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}
+  >
+    ✕
+  </button>
+</div>
           ))
         }
       </div>
