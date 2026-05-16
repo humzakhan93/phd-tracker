@@ -1529,4 +1529,107 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           {expenses.length === 0
             ? <div style={{ color: C.sub, fontSize: "13px", marginBottom: "16px", fontFamily: FONT }}>None logged</div>
             : expenses.map(e => (
-              <div key={e.id} style={{ background: C
+              <div key={e.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "13px", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{e.date} · {e.category}</div>
+                  {e.notes && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{e.notes}</div>}
+                  <div style={{ color: C.red, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>− {fmt(e.amount)}</div>
+                </div>
+                <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+              </div>
+            ))
+          }
+          <SectionTitle>Fuel Fill-Ups</SectionTitle>
+          {fuelLogs.length === 0
+            ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>None logged</div>
+            : fuelLogs.map(f => (
+              <div key={f.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "13px", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{f.date}{f.notes ? ` · ${f.notes}` : ""}</div>
+                  {f.litres > 0 && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{f.litres}L{f.mileage > 0 ? ` · ${f.mileage.toLocaleString()} mi` : ""}</div>}
+                  <div style={{ color: C.red, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>− {fmt(f.cost)}</div>
+                </div>
+                <button onClick={() => setFuelLogs(prev => prev.filter(x => x.id !== f.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+              </div>
+            ))
+          }
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Mileage ──────────────────────────────────────────────────────────────────
+function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
+  const totalBusiness = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
+  const totalJob = jobs.reduce((s, j) => s + (j.jobMiles || 0), 0);
+  const totalDead = jobs.reduce((s, j) => s + (j.deadMiles || 0), 0);
+  const deadPct = (totalJob + totalDead) > 0 ? (totalDead / (totalJob + totalDead) * 100).toFixed(1) : 0;
+  const hmrc = totalBusiness <= HMRC_THRESHOLD ? totalBusiness * HMRC_RATE_1 : HMRC_THRESHOLD * HMRC_RATE_1 + (totalBusiness - HMRC_THRESHOLD) * HMRC_RATE_2;
+  const remaining10k = Math.max(0, HMRC_THRESHOLD - totalBusiness);
+  const sorted = [...fuelLogs].filter(f => f.mileage > 0).sort((a, b) => a.mileage - b.mileage);
+  let mpg = null;
+  if (sorted.length >= 2) {
+    const miles = sorted[sorted.length - 1].mileage - sorted[0].mileage;
+    const litres = sorted.slice(1).reduce((s, f) => s + f.litres, 0);
+    if (litres > 0) mpg = (miles / (litres * 0.2199692)).toFixed(1);
+  }
+
+  return (
+    <div>
+      <TabIntro storageKey="intro_mileage" icon="🛣️" title="Miles Tab" body="Track your business mileage for HMRC. Every completed shift logs your miles automatically. You can claim 45p per mile for the first 10,000 business miles each tax year, then 25p — this is instead of claiming actual fuel costs." />
+      <SectionTitle>Mileage Overview</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "18px" }}>
+        <StatCard label="Business Miles" value={totalBusiness.toFixed(0)} color={C.accent} sub="from shift logs" />
+        <StatCard label="HMRC Claimable" value={fmt(hmrc)} color={C.green} />
+        <StatCard label="Job Miles" value={totalJob.toFixed(0)} color={C.blue} sub="from job diary" />
+        <StatCard label="Dead Mile %" value={`${deadPct}%`} color={parseFloat(deadPct) > 30 ? C.red : C.orange} sub="of job miles" />
+      </div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>HMRC Mileage Allowance</SectionTitle>
+        <Row label="Business miles" value={`${totalBusiness.toFixed(0)} mi`} />
+        <Row label="First 10,000 mi rate" value="45p / mile" />
+        <Row label="Above 10,000 mi rate" value="25p / mile" />
+        <Row label="Total claimable" value={fmt(hmrc)} color={C.green} bold />
+        {remaining10k > 0
+          ? <div style={{ fontSize: "12px", color: C.sub, marginTop: "10px", fontFamily: FONT }}>{remaining10k.toFixed(0)} miles remaining at the 45p rate this tax year.</div>
+          : <div style={{ fontSize: "12px", color: C.orange, marginTop: "10px", fontFamily: FONT }}>You've passed 10,000 miles — now earning 25p/mile.</div>
+        }
+      </div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Shift Log ({shifts.length} shifts)</SectionTitle>
+        {shifts.length === 0
+          ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>No completed shifts yet. Use Start Shift on the home tab.</div>
+          : shifts.slice(0, 10).map(sh => (
+            <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: "10px" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
+                  <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>{sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}</span>
+                </div>
+                <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
+                  {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
+                </div>
+              </div>
+              <button onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+            </div>
+          ))
+        }
+      </div>
+      {mpg && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+          <SectionTitle>Fuel Efficiency</SectionTitle>
+          <Row label="Estimated MPG" value={`${mpg} mpg`} color={C.accent} bold />
+          <div style={{ fontSize: "12px", color: C.sub, marginTop: "8px", fontFamily: FONT }}>Calculated from odometer readings in your fuel log.</div>
+        </div>
+      )}
+      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "16px" }}>
+        <SectionTitle>HMRC Tip</SectionTitle>
+        <div style={{ fontSize: "13px", color: C.sub, lineHeight: "1.8", fontFamily: FONT }}>
+          Mileage allowance is claimed <span style={{ color: C.green, fontWeight: "600" }}>instead of</span> actual fuel costs — not in addition. Most drivers find the allowance more beneficial. Always consult your accountant.
+        </div>
+      </div>
+    </div>
+  );
+}
+              
