@@ -2,8 +2,16 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const OPERATORS = ["Uber", "Bolt", "Airport Transfer", "Local Operator", "Other"];
-const EXPENSE_CATS = ["Car Wash", "Insurance", "Phone", "TfL Licence", "Maintenance", "Parking", "Other"];
+const OPERATORS = ["Uber", "Bolt", "Airport Transfer", "Local Operator", "Other"]; // legacy fallback only
+const EXPENSE_CATS = ["Car Wash", "Insurance", "Phone", "TfL Licence", "Maintenance", "Parking", "Card Machine Fee", "Other"];
+const PAYMENT_METHODS = ["Via Operator", "Cash", "Card (my machine)"];
+const PAYMENT_ICONS = { "Via Operator": "🏢", "Cash": "💵", "Card (my machine)": "💳" };
+
+// Quick-add operator presets for new users
+const OPERATOR_PRESETS = [
+  { name: "Uber", color: "#16A34A", commissionModel: "net", commissionPct: 0, hasConfigFee: false, defaultPayment: "Via Operator", notes: "Uber pays net — fare shown is what you keep" },
+  { name: "Bolt", color: "#00C853", commissionModel: "net", commissionPct: 0, hasConfigFee: false, defaultPayment: "Via Operator", notes: "Bolt pays net — fare shown is what you keep" },
+];
 const HMRC_RATE_1 = 0.45;
 const HMRC_RATE_2 = 0.25;
 const HMRC_THRESHOLD = 10000;
@@ -519,7 +527,7 @@ export default function App() {
   const [fuelLogs, setFuelLogs] = useState(() => load("phd_fuel", []));
   const [shifts, setShifts] = useState(() => load("phd_shifts", []));
   const [activeShift, setActiveShift] = useState(() => load("phd_active_shift", null));
-  const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18 }));
+  const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18, cardFeePct: 1.69, operators: [] }));
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
 
@@ -748,7 +756,8 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
 
   const grossFares = fj.reduce((s, j) => s + (j.fare || 0), 0);
   const opCuts = fj.reduce((s, j) => s + (j.opCut || 0), 0);
-  const netFares = grossFares - opCuts;
+  const totalTips = fj.reduce((s, j) => s + (j.tip || 0), 0);
+  const netFares = grossFares - opCuts + totalTips;
   const fuelSpend = ff.reduce((s, f) => s + (f.cost || 0), 0);
   const otherExp = fe.reduce((s, e) => s + (e.amount || 0), 0);
   const netProfit = netFares - fuelSpend - otherExp;
@@ -768,11 +777,13 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
   const allBusinessMiles = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
   const hmrc = allBusinessMiles <= HMRC_THRESHOLD ? allBusinessMiles * HMRC_RATE_1 : HMRC_THRESHOLD * HMRC_RATE_1 + (allBusinessMiles - HMRC_THRESHOLD) * HMRC_RATE_2;
 
-  const byOp = OPERATORS.map(op => {
+  const byOp = [...new Set(fj.map(j => j.operator))].map(op => {
     const opJobs = fj.filter(j => j.operator === op);
     const net = opJobs.reduce((s, j) => s + (j.netEarnings || 0), 0);
     const mins = opJobs.reduce((s, j) => s + (j.minutes || 0), 0);
-    return { op, count: opJobs.length, net, hr: mins > 0 ? net / (mins / 60) : 0 };
+    const opProfile = (settings?.operators || []).find(o => o.name === op);
+    const color = opProfile?.color || C.accent;
+    return { op, count: opJobs.length, net, hr: mins > 0 ? net / (mins / 60) : 0, color };
   }).filter(x => x.count > 0).sort((a, b) => b.net - a.net);
 
   // Range buttons — hide "Current Shift" if no active shift
@@ -855,6 +866,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
         <SectionTitle>P&L Breakdown</SectionTitle>
         <Row label="Gross fares" value={fmt(grossFares)} />
         <Row label="Operator cuts" value={`− ${fmt(opCuts)}`} color={C.red} />
+        {totalTips > 0 && <Row label="Tips received" value={`+ ${fmt(totalTips)}`} color={C.green} />}
         <Row label="Net from rides" value={fmt(netFares)} color={C.green} bold />
         <Row label="Fuel spend" value={`− ${fmt(fuelSpend)}`} color={C.red} />
         <Row label="Other expenses" value={`− ${fmt(otherExp)}`} color={C.red} />
@@ -865,9 +877,9 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
       {byOp.length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
           <SectionTitle>By Operator</SectionTitle>
-          {byOp.map(({ op, count, net, hr }) => (
+          {byOp.map(({ op, count, net, hr, color }) => (
             <div key={op} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div><Pill label={op} color={OP_COLOR[op]} /><div style={{ fontSize: "11px", color: C.sub, marginTop: "4px", fontFamily: FONT }}>{count} job{count !== 1 ? "s" : ""}</div></div>
+              <div><Pill label={op} color={color} /><div style={{ fontSize: "11px", color: C.sub, marginTop: "4px", fontFamily: FONT }}>{count} job{count !== 1 ? "s" : ""}</div></div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontWeight: "700", fontFamily: FONT }}>{fmt(net)}</div>
                 {hr > 0 && <div style={{ fontSize: "11px", color: C.accent, fontFamily: FONT }}>{fmt(hr)}/hr</div>}
@@ -893,7 +905,7 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
   const [logMode, setLogMode] = useState("job");
 
   // ── Draft autosave — load from localStorage on mount ──────────────────────
-  const defaultJobForm = { date: today(), operator: "Uber", fare: "", isNet: "yes", commissionPct: "", jobMiles: "", deadMiles: "", minutes: "", notes: "" };
+  const defaultJobForm = { date: today(), operator: "", fare: "", isNet: "yes", commissionPct: "", configFee: "", jobMiles: "", deadMiles: "", minutes: "", paymentMethod: "Via Operator", cardFeePct: "", tip: "", notes: "" };
   const defaultDayForm = { date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" };
 
   const [jobForm, setJobForm] = useState(() => load(DRAFT_JOB_KEY, defaultJobForm));
@@ -907,21 +919,49 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
   const hasDraftJob = jobForm.fare || jobForm.jobMiles || jobForm.notes;
   const hasDraftDay = dayForm.totalFare || dayForm.totalJobs || dayForm.notes;
 
-  function calcNet(fare, isNet, commPct) {
-    if (isNet === "yes") return parseFloat(fare) || 0;
-    const pct = parseFloat(commPct) || 0;
-    return (parseFloat(fare) || 0) * (1 - pct / 100);
+  // Get selected operator profile
+  const selectedOp = (settings.operators || []).find(o => o.name === jobForm.operator);
+
+  function calcCommission(fare, op, form) {
+    if (!op) {
+      // Manual entry fallback
+      if (form.isNet === "yes") return { netFare: parseFloat(fare) || 0, opCut: 0, configFeeAmt: 0 };
+      const pct = parseFloat(form.commissionPct) || 0;
+      const netFare = (parseFloat(fare) || 0) * (1 - pct / 100);
+      return { netFare, opCut: fare - netFare, configFeeAmt: 0 };
+    }
+    const fareNum = parseFloat(fare) || 0;
+    const configFeeAmt = op.hasConfigFee ? (parseFloat(form.configFee) || 0) : 0;
+    if (op.commissionModel === "net") return { netFare: fareNum, opCut: 0, configFeeAmt };
+    if (op.commissionModel === "pct") {
+      const afterConfig = fareNum - configFeeAmt;
+      const comm = afterConfig * (op.commissionPct / 100);
+      return { netFare: afterConfig - comm, opCut: comm + configFeeAmt, configFeeAmt };
+    }
+    if (op.commissionModel === "fixed_then_pct") {
+      const afterFixed = fareNum - (op.fixedFee || 0);
+      const comm = afterFixed * (op.commissionPct / 100);
+      return { netFare: afterFixed - comm, opCut: (op.fixedFee || 0) + comm, configFeeAmt: 0 };
+    }
+    return { netFare: fareNum, opCut: 0, configFeeAmt: 0 };
   }
 
   function addJob() {
     const fare = parseFloat(jobForm.fare);
     const jobMiles = parseFloat(jobForm.jobMiles) || 0;
     if (!fare) return;
-    const netFare = calcNet(fare, jobForm.isNet, jobForm.commissionPct);
-    const opCut = fare - netFare;
+    const { netFare, opCut, configFeeAmt } = calcCommission(fare, selectedOp, jobForm);
+    const tip = parseFloat(jobForm.tip) || 0;
     const fuelCost = (jobMiles + (parseFloat(jobForm.deadMiles) || 0)) * settings.fuelCostPerMile;
-    setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator, fare, netFare, opCut, jobMiles, deadMiles: parseFloat(jobForm.deadMiles) || 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings: netFare - fuelCost, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
-    // Clear draft after successful submit
+    // Card fee if paid by card machine
+    const cardFeePct = jobForm.paymentMethod === "Card (my machine)" ? (parseFloat(jobForm.cardFeePct) || settings.cardFeePct || 1.69) : 0;
+    const cardFeeAmt = netFare * (cardFeePct / 100);
+    const netEarnings = netFare - fuelCost + tip - cardFeeAmt;
+    // Auto-log card fee as expense
+    if (cardFeeAmt > 0) {
+      setExpenses(prev => [{ id: Date.now() + 1, date: jobForm.date, category: "Card Machine Fee", amount: parseFloat(cardFeeAmt.toFixed(2)), notes: `Card fee on ${fmt(fare)} job` }, ...prev]);
+    }
+    setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator || "Other", fare, netFare, opCut, configFeeAmt, jobMiles, deadMiles: parseFloat(jobForm.deadMiles) || 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings, tip, cardFeeAmt, paymentMethod: jobForm.paymentMethod, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
     clearDraft(DRAFT_JOB_KEY);
     setJobForm(defaultJobForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
@@ -930,10 +970,10 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
   function addDay() {
     const fare = parseFloat(dayForm.totalFare);
     if (!fare) return;
-    const netFare = calcNet(fare, dayForm.isNet, dayForm.commissionPct);
-    const opCut = fare - netFare;
+    const selectedDayOp = (settings.operators || []).find(o => o.name === dayForm.operator);
+    const { netFare, opCut } = calcCommission(fare, selectedDayOp, { isNet: dayForm.isNet, commissionPct: dayForm.commissionPct, configFee: "" });
     const fuelCost = (parseFloat(dayForm.totalMiles) || 0) * settings.fuelCostPerMile;
-    setJobs(prev => [{ id: Date.now(), date: dayForm.date, operator: dayForm.operator, fare, netFare, opCut, jobMiles: parseFloat(dayForm.totalMiles) || 0, deadMiles: 0, minutes: 0, netEarnings: netFare - fuelCost, notes: dayForm.notes || `${dayForm.totalJobs || "?"} jobs`, shiftId: activeShift?.id || null, type: "day" }, ...prev]);
+    setJobs(prev => [{ id: Date.now(), date: dayForm.date, operator: dayForm.operator || "Other", fare, netFare, opCut, jobMiles: parseFloat(dayForm.totalMiles) || 0, deadMiles: 0, minutes: 0, netEarnings: netFare - fuelCost, tip: 0, paymentMethod: "Via Operator", notes: dayForm.notes || `${dayForm.totalJobs || "?"} jobs`, shiftId: activeShift?.id || null, type: "day" }, ...prev]);
     clearDraft(DRAFT_DAY_KEY);
     setDayForm(defaultDayForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
@@ -984,12 +1024,88 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
             </div>
           )}
           <Input label="Date" type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value }))} />
-          <Select label="Operator" options={OPERATORS} value={jobForm.operator} onChange={e => setJobForm(f => ({ ...f, operator: e.target.value }))} />
-          <Input label="Fare (£)" tooltip="The amount shown for this job before any deductions." type="number" placeholder="e.g. 22.00" value={jobForm.fare} onChange={e => setJobForm(f => ({ ...f, fare: e.target.value }))} />
-          <FareTypeToggle value={jobForm.isNet} onChange={v => setJobForm(f => ({ ...f, isNet: v }))} commPct={jobForm.commissionPct} onCommChange={v => setJobForm(f => ({ ...f, commissionPct: v }))} />
+
+          {/* Operator selector — uses custom operators from settings */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Operator" tooltip="Select the company this job is with. Set up your operators in the Costs tab under Settings." />
+            {(settings.operators || []).length === 0 ? (
+              <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "10px", padding: "12px", fontSize: "13px", color: C.orange, fontFamily: FONT }}>
+                No operators set up yet. Go to <strong>Costs → Settings → My Operators</strong> to add yours.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {(settings.operators || []).map(op => (
+                  <button key={op.name} onClick={() => setJobForm(f => ({ ...f, operator: op.name, paymentMethod: op.defaultPayment || "Via Operator", commissionPct: op.commissionModel === "pct" ? String(op.commissionPct) : "" }))} style={{
+                    padding: "8px 14px", borderRadius: "20px", cursor: "pointer",
+                    background: jobForm.operator === op.name ? op.color + "22" : C.light,
+                    border: `2px solid ${jobForm.operator === op.name ? op.color : C.border}`,
+                    color: jobForm.operator === op.name ? op.color : C.sub,
+                    fontSize: "13px", fontWeight: "700", fontFamily: FONT,
+                  }}>{op.name}</button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Input label="Fare (£)" tooltip="The amount shown for this job." type="number" placeholder="e.g. 22.00" value={jobForm.fare} onChange={e => setJobForm(f => ({ ...f, fare: e.target.value }))} />
+
+          {/* Commission — shown based on operator model */}
+          {selectedOp ? (
+            <>
+              {selectedOp.commissionModel === "net" && (
+                <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>
+                  ✓ {selectedOp.name} — Net pay, no commission deducted
+                </div>
+              )}
+              {selectedOp.commissionModel === "pct" && (
+                <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>
+                  Commission: <strong>{selectedOp.commissionPct}%</strong> will be deducted automatically
+                </div>
+              )}
+              {selectedOp.commissionModel === "fixed_then_pct" && (
+                <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>
+                  Fixed fee £{selectedOp.fixedFee} then {selectedOp.commissionPct}% on remainder
+                </div>
+              )}
+              {selectedOp.hasConfigFee && (
+                <Input label="Config fee (£) — if applicable" tooltip="The config fee for this job that goes back to the operator. Leave blank if there isn't one for this job." type="number" placeholder="e.g. 2.50" value={jobForm.configFee} onChange={e => setJobForm(f => ({ ...f, configFee: e.target.value }))} />
+              )}
+            </>
+          ) : jobForm.operator ? null : (
+            <FareTypeToggle value={jobForm.isNet} onChange={v => setJobForm(f => ({ ...f, isNet: v }))} commPct={jobForm.commissionPct} onCommChange={v => setJobForm(f => ({ ...f, commissionPct: v }))} />
+          )}
+
           <Input label="Job miles (pickup to dropoff)" tooltip="Distance of the actual trip — pickup location to where you drop the passenger." type="number" placeholder="e.g. 15" value={jobForm.jobMiles} onChange={e => setJobForm(f => ({ ...f, jobMiles: e.target.value }))} />
           <Input label="Dead miles to pickup" tooltip="Miles you drove to reach the pickup from where you were. These cost you fuel but earn nothing." type="number" placeholder="e.g. 2" value={jobForm.deadMiles} onChange={e => setJobForm(f => ({ ...f, deadMiles: e.target.value }))} />
-          <Input label="Total time (minutes)" tooltip="Total time from when you left for the pickup to when you dropped the passenger off. Includes travel to pickup + the trip itself." type="number" placeholder="e.g. 40" value={jobForm.minutes} onChange={e => setJobForm(f => ({ ...f, minutes: e.target.value }))} />
+          <Input label="Total time (minutes)" tooltip="Total time from when you left for the pickup to when you dropped the passenger off." type="number" placeholder="e.g. 40" value={jobForm.minutes} onChange={e => setJobForm(f => ({ ...f, minutes: e.target.value }))} />
+
+          {/* Payment method */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Payment method" tooltip="Via Operator means they collect payment and pay you later. Cash is immediate. Card (my machine) means the customer paid via your own card reader — a fee will be deducted." />
+            <div style={{ display: "flex", gap: "6px" }}>
+              {PAYMENT_METHODS.map(m => (
+                <button key={m} onClick={() => setJobForm(f => ({ ...f, paymentMethod: m, cardFeePct: m === "Card (my machine)" ? String(settings.cardFeePct || 1.69) : "" }))} style={{
+                  flex: 1, padding: "9px 6px", borderRadius: "10px", cursor: "pointer",
+                  background: jobForm.paymentMethod === m ? C.blueBg : C.light,
+                  border: `2px solid ${jobForm.paymentMethod === m ? C.blue : C.border}`,
+                  color: jobForm.paymentMethod === m ? C.blue : C.sub,
+                  fontSize: "11px", fontWeight: "600", fontFamily: FONT, textAlign: "center",
+                }}>{PAYMENT_ICONS[m]}<br />{m}</button>
+              ))}
+            </div>
+            {jobForm.paymentMethod === "Card (my machine)" && (
+              <div style={{ marginTop: "10px" }}>
+                <Input label="Card machine fee %" tooltip="Your card reader's transaction fee. Default is taken from your settings but you can override it here." type="number" placeholder="e.g. 1.69" value={jobForm.cardFeePct || String(settings.cardFeePct || 1.69)} onChange={e => setJobForm(f => ({ ...f, cardFeePct: e.target.value }))} />
+                {jobForm.fare && (
+                  <div style={{ fontSize: "12px", color: C.red, fontFamily: FONT, marginTop: "-8px", marginBottom: "8px" }}>
+                    Fee on this job: {fmt(parseFloat(jobForm.fare) * ((parseFloat(jobForm.cardFeePct) || settings.cardFeePct || 1.69) / 100))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <Input label="Tip received (£) — optional" tooltip="Any tip the customer gave you. Tips are taxable income and should be declared on your self-assessment." type="number" placeholder="e.g. 3.00" value={jobForm.tip} onChange={e => setJobForm(f => ({ ...f, tip: e.target.value }))} />
           <Input label="Notes (optional)" type="text" placeholder="e.g. Luton airport run" value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} />
           <Btn onClick={addJob} disabled={!jobForm.fare}>Add Job</Btn>
           {added && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Added</div>}
@@ -1014,7 +1130,28 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
             Use this to log your total earnings for a full day or session with one operator.
           </div>
           <Input label="Date" type="date" value={dayForm.date} onChange={e => setDayForm(f => ({ ...f, date: e.target.value }))} />
-          <Select label="Operator" options={OPERATORS} value={dayForm.operator} onChange={e => setDayForm(f => ({ ...f, operator: e.target.value }))} />
+
+          {/* Operator selector */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Operator" />
+            {(settings.operators || []).length === 0 ? (
+              <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "10px", padding: "12px", fontSize: "13px", color: C.orange, fontFamily: FONT }}>
+                No operators set up yet. Go to <strong>Costs → Settings → My Operators</strong>.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {(settings.operators || []).map(op => (
+                  <button key={op.name} onClick={() => setDayForm(f => ({ ...f, operator: op.name }))} style={{
+                    padding: "8px 14px", borderRadius: "20px", cursor: "pointer",
+                    background: dayForm.operator === op.name ? op.color + "22" : C.light,
+                    border: `2px solid ${dayForm.operator === op.name ? op.color : C.border}`,
+                    color: dayForm.operator === op.name ? op.color : C.sub,
+                    fontSize: "13px", fontWeight: "700", fontFamily: FONT,
+                  }}>{op.name}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <Input label="Total earnings (£)" tooltip="Your total earnings for this operator for the day." type="number" placeholder="e.g. 145.00" value={dayForm.totalFare} onChange={e => setDayForm(f => ({ ...f, totalFare: e.target.value }))} />
           <FareTypeToggle value={dayForm.isNet} onChange={v => setDayForm(f => ({ ...f, isNet: v }))} commPct={dayForm.commissionPct} onCommChange={v => setDayForm(f => ({ ...f, commissionPct: v }))} />
           <Input label="Number of jobs (optional)" type="number" placeholder="e.g. 8" value={dayForm.totalJobs} onChange={e => setDayForm(f => ({ ...f, totalJobs: e.target.value }))} />
@@ -1032,14 +1169,26 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
           <div key={j.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "14px", marginBottom: "8px", display: "flex", justifyContent: "space-between", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px" }}>
-                <Pill label={j.operator} color={OP_COLOR[j.operator]} />
+                <Pill label={j.operator} color={(settings.operators || []).find(o => o.name === j.operator)?.color || C.accent} />
                 {j.type === "day" && <span style={{ fontSize: "10px", color: C.muted, fontFamily: FONT }}>daily total</span>}
                 {j.type === "imported" && <span style={{ fontSize: "10px", color: C.muted, fontFamily: FONT }}>imported</span>}
               </div>
               <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{j.date}{j.notes ? ` · ${j.notes}` : ""}</div>
               <div style={{ fontSize: "14px", marginTop: "4px", fontFamily: FONT }}>{fmt(j.fare)} gross{j.jobMiles ? ` · ${j.jobMiles}mi` : ""}</div>
-              <div style={{ fontSize: "13px", color: j.netEarnings > 0 ? C.green : C.red, marginTop: "2px", fontWeight: "600", fontFamily: FONT }}>
-                Net {fmt(j.netEarnings)}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
+                <div style={{ fontSize: "13px", color: j.netEarnings > 0 ? C.green : C.red, fontWeight: "600", fontFamily: FONT }}>
+                  Net {fmt(j.netEarnings)}
+                </div>
+                {j.tip > 0 && (
+                  <span style={{ fontSize: "11px", background: "#FFF7ED", color: C.orange, border: `1px solid #FED7AA`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>
+                    +{fmt(j.tip)} tip
+                  </span>
+                )}
+                {j.paymentMethod && j.paymentMethod !== "App / Operator" && (
+                  <span style={{ fontSize: "11px", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBorder}`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>
+                    {PAYMENT_ICONS[j.paymentMethod]} {j.paymentMethod}
+                  </span>
+                )}
               </div>
             </div>
             <button onClick={() => setJobs(prev => prev.filter(x => x.id !== j.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px", paddingLeft: "10px" }}>✕</button>
@@ -1152,6 +1301,159 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
   );
 }
 
+// ─── Operators Manager ────────────────────────────────────────────────────────
+const OP_COLORS = ["#16A34A", "#2563EB", "#EA580C", "#DC2626", "#9333EA", "#0891B2", "#D97706", "#BE185D", "#059669", "#7C3AED"];
+const COMMISSION_MODELS = [
+  { id: "net", label: "Net pay — no commission" },
+  { id: "pct", label: "Percentage commission" },
+  { id: "fixed_then_pct", label: "Fixed fee, then percentage" },
+];
+
+function OperatorsManager({ settings, setSettings }) {
+  const operators = settings.operators || [];
+  const [showAdd, setShowAdd] = useState(false);
+  const [editIdx, setEditIdx] = useState(null);
+  const blankOp = { name: "", color: OP_COLORS[0], commissionModel: "net", commissionPct: "", fixedFee: "", hasConfigFee: false, defaultPayment: "Via Operator", notes: "" };
+  const [form, setForm] = useState(blankOp);
+
+  function saveOp() {
+    if (!form.name.trim()) return;
+    const newOp = { ...form, commissionPct: parseFloat(form.commissionPct) || 0, fixedFee: parseFloat(form.fixedFee) || 0 };
+    const updated = editIdx !== null
+      ? operators.map((o, i) => i === editIdx ? newOp : o)
+      : [...operators, newOp];
+    setSettings(s => ({ ...s, operators: updated }));
+    setForm(blankOp); setShowAdd(false); setEditIdx(null);
+  }
+
+  function deleteOp(idx) {
+    setSettings(s => ({ ...s, operators: operators.filter((_, i) => i !== idx) }));
+  }
+
+  function startEdit(idx) {
+    setForm({ ...blankOp, ...operators[idx], commissionPct: String(operators[idx].commissionPct || ""), fixedFee: String(operators[idx].fixedFee || "") });
+    setEditIdx(idx); setShowAdd(true);
+  }
+
+  function addPreset(preset) {
+    if (operators.find(o => o.name === preset.name)) return;
+    setSettings(s => ({ ...s, operators: [...(s.operators || []), preset] }));
+  }
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <SectionTitle>My Operators</SectionTitle>
+        {!showAdd && (
+          <button onClick={() => { setShowAdd(true); setEditIdx(null); setForm(blankOp); }} style={{ background: C.accent, border: "none", color: "#fff", borderRadius: "8px", padding: "6px 12px", fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>+ Add</button>
+        )}
+      </div>
+
+      {/* Quick add presets */}
+      {operators.length === 0 && !showAdd && (
+        <div style={{ marginBottom: "16px" }}>
+          <div style={{ fontSize: "12px", color: C.sub, marginBottom: "8px", fontFamily: FONT }}>Quick add common operators:</div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {OPERATOR_PRESETS.map(p => (
+              <button key={p.name} onClick={() => addPreset(p)} style={{ padding: "8px 14px", background: p.color + "18", border: `2px solid ${p.color}`, borderRadius: "20px", color: p.color, fontSize: "13px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>+ {p.name}</button>
+            ))}
+          </div>
+          <div style={{ fontSize: "12px", color: C.muted, marginTop: "10px", fontFamily: FONT }}>Or tap Add to set up any operator with custom commission rules.</div>
+        </div>
+      )}
+
+      {/* Operator list */}
+      {operators.map((op, idx) => (
+        <div key={idx} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: op.color, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "14px", fontWeight: "700", color: C.text, fontFamily: FONT }}>{op.name}</div>
+            <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>
+              {op.commissionModel === "net" ? "Net pay" : op.commissionModel === "pct" ? `${op.commissionPct}% commission` : `£${op.fixedFee} + ${op.commissionPct}%`}
+              {op.hasConfigFee ? " · Config fee" : ""}
+              {" · "}{op.defaultPayment}
+            </div>
+          </div>
+          <button onClick={() => startEdit(idx)} style={{ background: "none", border: "none", color: C.blue, fontSize: "13px", cursor: "pointer", fontFamily: FONT }}>Edit</button>
+          <button onClick={() => deleteOp(idx)} style={{ background: "none", border: "none", color: C.red, fontSize: "18px", cursor: "pointer" }}>✕</button>
+        </div>
+      ))}
+
+      {/* Add/Edit form */}
+      {showAdd && (
+        <div style={{ marginTop: "16px", padding: "16px", background: C.light, borderRadius: "12px", border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: "14px", fontWeight: "700", color: C.text, marginBottom: "14px", fontFamily: FONT }}>{editIdx !== null ? "Edit operator" : "Add operator"}</div>
+
+          <Input label="Operator name" type="text" placeholder="e.g. FalconCars, Skyline, My Private Clients" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+
+          {/* Colour picker */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Colour tag" />
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {OP_COLORS.map(c => (
+                <button key={c} onClick={() => setForm(f => ({ ...f, color: c }))} style={{ width: "28px", height: "28px", borderRadius: "50%", background: c, border: form.color === c ? `3px solid ${C.text}` : "3px solid transparent", cursor: "pointer" }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Commission model */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Commission model" tooltip="How this operator calculates what they pay you." />
+            {COMMISSION_MODELS.map(m => (
+              <button key={m.id} onClick={() => setForm(f => ({ ...f, commissionModel: m.id }))} style={{ display: "block", width: "100%", padding: "10px 14px", marginBottom: "6px", textAlign: "left", background: form.commissionModel === m.id ? C.blueBg : C.card, border: `2px solid ${form.commissionModel === m.id ? C.blue : C.border}`, borderRadius: "10px", color: form.commissionModel === m.id ? C.blue : C.sub, fontSize: "13px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{m.label}</button>
+            ))}
+          </div>
+
+          {form.commissionModel === "pct" && (
+            <Input label="Commission %" type="number" placeholder="e.g. 15" value={form.commissionPct} onChange={e => setForm(f => ({ ...f, commissionPct: e.target.value }))} />
+          )}
+          {form.commissionModel === "fixed_then_pct" && (
+            <>
+              <Input label="Fixed fee (£)" tooltip="Amount deducted first before commission is applied" type="number" placeholder="e.g. 0.20" value={form.fixedFee} onChange={e => setForm(f => ({ ...f, fixedFee: e.target.value }))} />
+              <Input label="Commission % on remainder" type="number" placeholder="e.g. 17" value={form.commissionPct} onChange={e => setForm(f => ({ ...f, commissionPct: e.target.value }))} />
+            </>
+          )}
+
+          {/* Config fee toggle */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Has config fee?" tooltip="A per-job fee that goes back to the operator before commission is calculated. The amount varies per job so you'll enter it manually each time." />
+            <div style={{ display: "flex", gap: "8px" }}>
+              {[{ v: false, label: "No" }, { v: true, label: "Yes — show config fee field on jobs" }].map(opt => (
+                <button key={String(opt.v)} onClick={() => setForm(f => ({ ...f, hasConfigFee: opt.v }))} style={{ flex: 1, padding: "10px", background: form.hasConfigFee === opt.v ? C.blueBg : C.light, border: `2px solid ${form.hasConfigFee === opt.v ? C.blue : C.border}`, borderRadius: "10px", color: form.hasConfigFee === opt.v ? C.blue : C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Default payment */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Default payment method" />
+            <div style={{ display: "flex", gap: "6px" }}>
+              {PAYMENT_METHODS.map(m => (
+                <button key={m} onClick={() => setForm(f => ({ ...f, defaultPayment: m }))} style={{ flex: 1, padding: "8px 4px", background: form.defaultPayment === m ? C.blueBg : C.light, border: `2px solid ${form.defaultPayment === m ? C.blue : C.border}`, borderRadius: "10px", color: form.defaultPayment === m ? C.blue : C.sub, fontSize: "10px", fontWeight: "600", fontFamily: FONT, cursor: "pointer", textAlign: "center" }}>{PAYMENT_ICONS[m]}<br />{m}</button>
+              ))}
+            </div>
+          </div>
+
+          <Input label="Notes (optional)" type="text" placeholder="e.g. Pays weekly on Thursdays" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={() => { setShowAdd(false); setEditIdx(null); setForm(blankOp); }} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+            <div style={{ flex: 1 }}><Btn onClick={saveOp} disabled={!form.name.trim()}>{editIdx !== null ? "Save changes" : "Add operator"}</Btn></div>
+          </div>
+        </div>
+      )}
+
+      {operators.length > 0 && !showAdd && (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+          {OPERATOR_PRESETS.filter(p => !operators.find(o => o.name === p.name)).map(p => (
+            <button key={p.name} onClick={() => addPreset(p)} style={{ padding: "6px 12px", background: p.color + "18", border: `1px solid ${p.color}44`, borderRadius: "20px", color: p.color, fontSize: "11px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>+ {p.name}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setSettings }) {
   const [subTab, setSubTab] = useState("expense");
@@ -1181,10 +1483,16 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
       <TabIntro storageKey="intro_expenses" icon="🧾" title="Costs Tab" body="Log all your business expenses here — fuel fill-ups, car washes, insurance, TfL licence renewals and anything else. These are deducted from your earnings in the P&L on the Home tab." />
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px", marginBottom: "16px" }}>
         <SectionTitle>Settings</SectionTitle>
-        <Field label="Fuel cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi. This is used in all profit calculations." tooltip="Enter how much fuel costs you per mile driven. A rough way to calculate: fill up, note the cost and miles driven since last fill-up, then divide cost by miles.">
+        <Field label="Fuel cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi" tooltip="Enter how much fuel costs you per mile. Divide your last fill-up cost by miles driven since previous fill-up.">
           <input style={inputStyle} type="number" step="0.01" value={settings.fuelCostPerMile} onChange={e => setSettings(s => ({ ...s, fuelCostPerMile: parseFloat(e.target.value) || 0 }))} />
         </Field>
+        <Field label="Card machine fee %" hint="Default fee used when logging card payments" tooltip="Your card reader's standard transaction fee percentage. Used as the default when you log a card payment job.">
+          <input style={inputStyle} type="number" step="0.01" placeholder="e.g. 1.69" value={settings.cardFeePct || ""} onChange={e => setSettings(s => ({ ...s, cardFeePct: parseFloat(e.target.value) || 0 }))} />
+        </Field>
       </div>
+
+      {/* My Operators */}
+      <OperatorsManager settings={settings} setSettings={setSettings} />
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
         {[{ id: "expense", label: "Add Expense" }, { id: "fuel", label: "Log Fuel" }, { id: "history", label: "History" }].map(t => (
           <button key={t.id} onClick={() => setSubTab(t.id)} style={{ flex: 1, padding: "9px 4px", background: subTab === t.id ? C.accent : "transparent", color: subTab === t.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "11px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{t.label}</button>
@@ -1221,106 +1529,4 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           {expenses.length === 0
             ? <div style={{ color: C.sub, fontSize: "13px", marginBottom: "16px", fontFamily: FONT }}>None logged</div>
             : expenses.map(e => (
-              <div key={e.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "13px", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{e.date} · {e.category}</div>
-                  {e.notes && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{e.notes}</div>}
-                  <div style={{ color: C.red, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>− {fmt(e.amount)}</div>
-                </div>
-                <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
-              </div>
-            ))
-          }
-          <SectionTitle>Fuel Fill-Ups</SectionTitle>
-          {fuelLogs.length === 0
-            ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>None logged</div>
-            : fuelLogs.map(f => (
-              <div key={f.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "13px", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{f.date}{f.notes ? ` · ${f.notes}` : ""}</div>
-                  {f.litres > 0 && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{f.litres}L{f.mileage > 0 ? ` · ${f.mileage.toLocaleString()} mi` : ""}</div>}
-                  <div style={{ color: C.red, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>− {fmt(f.cost)}</div>
-                </div>
-                <button onClick={() => setFuelLogs(prev => prev.filter(x => x.id !== f.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
-              </div>
-            ))
-          }
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── Mileage ──────────────────────────────────────────────────────────────────
-function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
-  const totalBusiness = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
-  const totalJob = jobs.reduce((s, j) => s + (j.jobMiles || 0), 0);
-  const totalDead = jobs.reduce((s, j) => s + (j.deadMiles || 0), 0);
-  const deadPct = (totalJob + totalDead) > 0 ? (totalDead / (totalJob + totalDead) * 100).toFixed(1) : 0;
-  const hmrc = totalBusiness <= HMRC_THRESHOLD ? totalBusiness * HMRC_RATE_1 : HMRC_THRESHOLD * HMRC_RATE_1 + (totalBusiness - HMRC_THRESHOLD) * HMRC_RATE_2;
-  const remaining10k = Math.max(0, HMRC_THRESHOLD - totalBusiness);
-  const sorted = [...fuelLogs].filter(f => f.mileage > 0).sort((a, b) => a.mileage - b.mileage);
-  let mpg = null;
-  if (sorted.length >= 2) {
-    const miles = sorted[sorted.length - 1].mileage - sorted[0].mileage;
-    const litres = sorted.slice(1).reduce((s, f) => s + f.litres, 0);
-    if (litres > 0) mpg = (miles / (litres * 0.2199692)).toFixed(1);
-  }
-
-  return (
-    <div>
-      <TabIntro storageKey="intro_mileage" icon="🛣️" title="Miles Tab" body="Track your business mileage for HMRC. Every completed shift logs your miles automatically. You can claim 45p per mile for the first 10,000 business miles each tax year, then 25p — this is instead of claiming actual fuel costs." />
-      <SectionTitle>Mileage Overview</SectionTitle>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "18px" }}>
-        <StatCard label="Business Miles" value={totalBusiness.toFixed(0)} color={C.accent} sub="from shift logs" />
-        <StatCard label="HMRC Claimable" value={fmt(hmrc)} color={C.green} />
-        <StatCard label="Job Miles" value={totalJob.toFixed(0)} color={C.blue} sub="from job diary" />
-        <StatCard label="Dead Mile %" value={`${deadPct}%`} color={parseFloat(deadPct) > 30 ? C.red : C.orange} sub="of job miles" />
-      </div>
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <SectionTitle>HMRC Mileage Allowance</SectionTitle>
-        <Row label="Business miles" value={`${totalBusiness.toFixed(0)} mi`} />
-        <Row label="First 10,000 mi rate" value="45p / mile" />
-        <Row label="Above 10,000 mi rate" value="25p / mile" />
-        <Row label="Total claimable" value={fmt(hmrc)} color={C.green} bold />
-        {remaining10k > 0
-          ? <div style={{ fontSize: "12px", color: C.sub, marginTop: "10px", fontFamily: FONT }}>{remaining10k.toFixed(0)} miles remaining at the 45p rate this tax year.</div>
-          : <div style={{ fontSize: "12px", color: C.orange, marginTop: "10px", fontFamily: FONT }}>You've passed 10,000 miles — now earning 25p/mile.</div>
-        }
-      </div>
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <SectionTitle>Shift Log ({shifts.length} shifts)</SectionTitle>
-        {shifts.length === 0
-          ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>No completed shifts yet. Use Start Shift on the home tab.</div>
-          : shifts.slice(0, 10).map(sh => (
-            <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: "10px" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
-                  <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>{sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}</span>
-                </div>
-                <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
-                  {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
-                </div>
-              </div>
-              <button onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
-            </div>
-          ))
-        }
-      </div>
-      {mpg && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-          <SectionTitle>Fuel Efficiency</SectionTitle>
-          <Row label="Estimated MPG" value={`${mpg} mpg`} color={C.accent} bold />
-          <div style={{ fontSize: "12px", color: C.sub, marginTop: "8px", fontFamily: FONT }}>Calculated from odometer readings in your fuel log.</div>
-        </div>
-      )}
-      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "16px" }}>
-        <SectionTitle>HMRC Tip</SectionTitle>
-        <div style={{ fontSize: "13px", color: C.sub, lineHeight: "1.8", fontFamily: FONT }}>
-          Mileage allowance is claimed <span style={{ color: C.green, fontWeight: "600" }}>instead of</span> actual fuel costs — not in addition. Most drivers find the allowance more beneficial. Always consult your accountant.
-        </div>
-      </div>
-    </div>
-  );
-}
+              <div key={e.id} style={{ background: C
