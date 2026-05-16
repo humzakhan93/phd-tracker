@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -9,7 +9,6 @@ const HMRC_RATE_2 = 0.25;
 const HMRC_THRESHOLD = 10000;
 const TAX_YEAR_START = "2025-04-06";
 
-// Pre-populated charges — editable by driver
 const PRESET_CHARGES = [
   { id: "luton_drop", label: "Luton Airport Drop-off", amount: 7.00 },
   { id: "luton_pickup", label: "Luton Airport Pick-up", amount: 7.00 },
@@ -23,6 +22,10 @@ const PRESET_CHARGES = [
   { id: "m6", label: "M6 Toll (full route)", amount: 11.60 },
 ];
 
+// ─── Draft autosave keys ──────────────────────────────────────────────────────
+const DRAFT_JOB_KEY = "dl_draft_job";
+const DRAFT_DAY_KEY = "dl_draft_day";
+
 const fmt = (n) => `£${Math.abs(Number(n || 0)).toFixed(2)}`;
 const today = () => new Date().toISOString().slice(0, 10);
 const timeStr = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -33,6 +36,7 @@ function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
 }
 function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+function clearDraft(key) { try { localStorage.removeItem(key); } catch {} }
 
 // ─── Google Fonts ─────────────────────────────────────────────────────────────
 const fontLink = document.createElement("link");
@@ -83,20 +87,17 @@ function SectionTitle({ children }) {
   );
 }
 
-// Tooltip component — question mark icon with popup explanation
 function Tooltip({ text }) {
   const [show, setShow] = useState(false);
   return (
     <span style={{ position: "relative", display: "inline-block", marginLeft: "6px" }}>
-      <button
-        onClick={() => setShow(s => !s)}
-        style={{
-          width: "18px", height: "18px", borderRadius: "50%",
-          background: C.blue, color: "#fff", border: "none",
-          fontSize: "11px", fontWeight: "700", cursor: "pointer",
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          fontFamily: FONT, flexShrink: 0,
-        }}>?</button>
+      <button onClick={() => setShow(s => !s)} style={{
+        width: "18px", height: "18px", borderRadius: "50%",
+        background: C.blue, color: "#fff", border: "none",
+        fontSize: "11px", fontWeight: "700", cursor: "pointer",
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontFamily: FONT, flexShrink: 0,
+      }}>?</button>
       {show && (
         <div style={{
           position: "absolute", bottom: "26px", left: "50%", transform: "translateX(-50%)",
@@ -173,7 +174,6 @@ function Row({ label, value, color = C.text, bold }) {
   );
 }
 
-// Info banner shown once per tab
 function TabIntro({ storageKey, icon, title, body }) {
   const [dismissed, setDismissed] = useState(() => load(storageKey, false));
   if (dismissed) return null;
@@ -188,7 +188,6 @@ function TabIntro({ storageKey, icon, title, body }) {
   );
 }
 
-// ─── Live elapsed time ────────────────────────────────────────────────────────
 function useElapsed(startTs) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -280,9 +279,7 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
     ? (parseFloat(odometerEnd) - shift.startOdometer || null)
     : null;
 
-  function toggleCharge(id) {
-    setSelectedCharges(prev => ({ ...prev, [id]: !prev[id] }));
-  }
+  function toggleCharge(id) { setSelectedCharges(prev => ({ ...prev, [id]: !prev[id] })); }
 
   function confirmTolls() {
     const tollExpenses = PRESET_CHARGES
@@ -333,7 +330,6 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
           {steps.map((s, i) => (<div key={s} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= stepIdx ? C.accent : C.border }} />))}
         </div>
 
-        {/* Mileage */}
         {step === "mileage" && (
           <>
             <div style={{ background: C.light, borderRadius: "12px", padding: "14px", marginBottom: "18px", fontSize: "13px", color: C.sub, lineHeight: "1.9", fontFamily: FONT }}>
@@ -367,7 +363,6 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
           </>
         )}
 
-        {/* Fuel */}
         {step === "fuel" && (
           <>
             <div style={{ fontSize: "14px", color: C.sub, marginBottom: "18px", lineHeight: "1.6", fontFamily: FONT }}>Did you fill up with fuel during or at the end of this shift?</div>
@@ -382,7 +377,6 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
           </>
         )}
 
-        {/* Tolls & Charges */}
         {step === "tolls" && (
           <>
             <div style={{ fontSize: "14px", color: C.sub, marginBottom: "14px", lineHeight: "1.6", fontFamily: FONT }}>
@@ -395,13 +389,7 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
                 </div>
                 <div style={{ flex: 1, fontSize: "13px", fontWeight: "600", color: C.text, fontFamily: FONT }}>{c.label}</div>
                 {selectedCharges[c.id] && (
-                  <input
-                    type="number"
-                    value={customChargeAmts[c.id] ?? c.amount}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => setCustomChargeAmts(prev => ({ ...prev, [c.id]: e.target.value }))}
-                    style={{ ...inputStyle, width: "80px", padding: "6px 10px", fontSize: "14px", textAlign: "right" }}
-                  />
+                  <input type="number" value={customChargeAmts[c.id] ?? c.amount} onClick={e => e.stopPropagation()} onChange={e => setCustomChargeAmts(prev => ({ ...prev, [c.id]: e.target.value }))} style={{ ...inputStyle, width: "80px", padding: "6px 10px", fontSize: "14px", textAlign: "right" }} />
                 )}
                 {!selectedCharges[c.id] && <span style={{ fontSize: "13px", color: C.muted, fontFamily: FONT }}>{fmt(c.amount)}</span>}
               </div>
@@ -413,7 +401,6 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
           </>
         )}
 
-        {/* Other */}
         {step === "other" && (
           <>
             <div style={{ fontSize: "14px", color: C.sub, marginBottom: "18px", lineHeight: "1.6", fontFamily: FONT }}>Any other expenses today? Car wash, phone top-up, anything else?</div>
@@ -429,7 +416,6 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
           </>
         )}
 
-        {/* Summary */}
         {step === "summary" && (
           <>
             <div style={{ background: C.light, borderRadius: "12px", padding: "16px", marginBottom: "16px" }}>
@@ -457,6 +443,8 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
     </div>
   );
 }
+
+// ─── Auth Screen ──────────────────────────────────────────────────────────────
 function AuthScreen({ authMode, setAuthMode }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -464,149 +452,68 @@ function AuthScreen({ authMode, setAuthMode }) {
   const [message, setMessage] = useState("");
 
   async function handleAuth() {
-    setBusy(true);
-    setMessage("");
-
-    const result =
-      authMode === "login"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
-
-    if (result.error) {
-      setMessage(result.error.message);
-    } else if (authMode === "signup") {
-      setMessage("Account created. Please check your email to confirm your account.");
-    }
-
+    setBusy(true); setMessage("");
+    const result = authMode === "login"
+      ? await supabase.auth.signInWithPassword({ email, password })
+      : await supabase.auth.signUp({ email, password });
+    if (result.error) { setMessage(result.error.message); }
+    else if (authMode === "signup") { setMessage("Account created. Please check your email to confirm your account."); }
     setBusy(false);
   }
 
   async function handleForgotPassword() {
-    if (!email) {
-      setMessage("Enter your email address first, then click Forgot password.");
-      return;
-    }
-
-    setBusy(true);
-    setMessage("");
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    });
-
-    if (error) {
-      setMessage(error.message);
-    } else {
-      setMessage("Password reset email sent. Please check your inbox.");
-    }
-
+    if (!email) { setMessage("Enter your email address first, then click Forgot password."); return; }
+    setBusy(true); setMessage("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if (error) { setMessage(error.message); } else { setMessage("Password reset email sent. Please check your inbox."); }
     setBusy(false);
   }
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: C.bg,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "24px",
-      fontFamily: FONT
-    }}>
-      <div style={{
-        width: "100%",
-        maxWidth: "420px",
-        background: C.card,
-        border: `1px solid ${C.border}`,
-        borderRadius: "22px",
-        padding: "26px",
-        boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)"
-      }}>
-        <h1 style={{ margin: 0, fontSize: "28px", color: C.text }}>Driver Ledger</h1>
-        <p style={{ marginTop: "8px", color: C.sub }}>
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", fontFamily: FONT }}>
+      <div style={{ width: "100%", maxWidth: "420px", background: C.card, border: `1px solid ${C.border}`, borderRadius: "22px", padding: "26px", boxShadow: "0 18px 45px rgba(15,23,42,0.08)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+          <img src="/logo.png" alt="Driver Ledger" style={{ width: "40px", height: "40px", borderRadius: "10px", objectFit: "contain" }} />
+          <div>
+            <div style={{ fontSize: "20px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Driver Ledger</div>
+            <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>Private Hire · Business Manager</div>
+          </div>
+        </div>
+        <p style={{ marginTop: "0", marginBottom: "20px", color: C.sub, fontSize: "14px", fontFamily: FONT }}>
           Sign in to securely save your jobs, shifts, expenses and mileage in the cloud.
         </p>
-
-        <div style={{ display: "grid", gap: "12px", marginTop: "24px" }}>
-          <input
-            style={inputStyle}
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAuth();
-            }}
-          />
-
-          <input
-            style={inputStyle}
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleAuth();
-            }}
-          />
-
+        <div style={{ display: "grid", gap: "12px" }}>
+          <input style={inputStyle} type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleAuth(); }} />
+          <input style={inputStyle} type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleAuth(); }} />
           <Btn onClick={handleAuth} disabled={busy || !email || !password}>
             {busy ? "Please wait..." : authMode === "login" ? "Log in" : "Create account"}
           </Btn>
-
-          {message && (
-            <p style={{ color: C.sub, fontSize: "14px", lineHeight: 1.5 }}>
-              {message}
-            </p>
-          )}
-
+          {message && <p style={{ color: C.sub, fontSize: "14px", lineHeight: 1.5, margin: 0, fontFamily: FONT }}>{message}</p>}
           {authMode === "login" && (
-            <button
-              onClick={handleForgotPassword}
-              disabled={busy}
-              style={{
-                background: "none",
-                border: "none",
-                color: C.sub,
-                fontWeight: "600",
-                cursor: busy ? "not-allowed" : "pointer",
-                fontFamily: FONT,
-                marginTop: "4px"
-              }}
-            >
+            <button onClick={handleForgotPassword} disabled={busy} style={{ background: "none", border: "none", color: C.sub, fontWeight: "600", cursor: busy ? "not-allowed" : "pointer", fontFamily: FONT, marginTop: "4px" }}>
               Forgot password?
             </button>
           )}
-
-          <button
-            onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
-            style={{
-              background: "none",
-              border: "none",
-              color: C.blue,
-              fontWeight: "700",
-              cursor: "pointer",
-              fontFamily: FONT,
-              marginTop: "8px"
-            }}
-          >
-            {authMode === "login"
-              ? "Need an account? Create one"
-              : "Already have an account? Log in"}
+          <button onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")} style={{ background: "none", border: "none", color: C.blue, fontWeight: "700", cursor: "pointer", fontFamily: FONT, marginTop: "8px" }}>
+            {authMode === "login" ? "Need an account? Create one" : "Already have an account? Log in"}
           </button>
         </div>
       </div>
     </div>
   );
 }
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-    const [session, setSession] = useState(null);
+  const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState("login");
   const [tab, setTab] = useState("dashboard");
   const [cloudStatus, setCloudStatus] = useState("Saved to cloud");
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const menuRef = useRef(null);
+
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
   const [fuelLogs, setFuelLogs] = useState(() => load("phd_fuel", []));
@@ -615,26 +522,32 @@ export default function App() {
   const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18 }));
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
-useEffect(() => {
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    setSession(session);
-    setCloudLoaded(false);
-    setAuthLoading(false);
-  });
 
-  const {
-    data: { subscription },
-  } = supabase.auth.onAuthStateChange((event, session) => {
-    setSession(session);
-
-    if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-      setCloudLoaded(false);
+  // Close menu when tapping outside
+  useEffect(() => {
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowUserMenu(false);
+      }
     }
-  });
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("touchstart", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("touchstart", handleClick);
+    };
+  }, []);
 
-  return () => subscription.unsubscribe();
-}, []);
-
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session); setCloudLoaded(false); setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session);
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") setCloudLoaded(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
   useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
@@ -642,45 +555,14 @@ useEffect(() => {
   useEffect(() => { save("phd_shifts", shifts); }, [shifts]);
   useEffect(() => { save("phd_active_shift", activeShift); }, [activeShift]);
   useEffect(() => { save("phd_settings", settings); }, [settings]);
-    async function loadCloudData() {
+
+  async function loadCloudData() {
     if (!session?.user?.id) return;
-
-    const { data, error } = await supabase
-      .from("app_data")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .single();
-
-    if (error && error.code !== "PGRST116") {
-  console.error("Cloud load error:", error);
-  setCloudStatus("Cloud load failed");
-  setCloudLoaded(true);
-  return;
-}
-
-    const hasLocalData =
-      jobs.length > 0 ||
-      expenses.length > 0 ||
-      fuelLogs.length > 0 ||
-      shifts.length > 0 ||
-      activeShift;
-
-    const cloudIsEmpty =
-      !data ||
-      (
-        (!data.jobs || data.jobs.length === 0) &&
-        (!data.expenses || data.expenses.length === 0) &&
-        (!data.fuel_logs || data.fuel_logs.length === 0) &&
-        (!data.shifts || data.shifts.length === 0) &&
-        !data.active_shift
-      );
-
-    if (cloudIsEmpty && hasLocalData) {
-  await saveCloudData();
-  setCloudLoaded(true);
-  return;
-}
-
+    const { data, error } = await supabase.from("app_data").select("*").eq("user_id", session.user.id).single();
+    if (error && error.code !== "PGRST116") { console.error("Cloud load error:", error); setCloudStatus("Cloud load failed"); setCloudLoaded(true); return; }
+    const hasLocalData = jobs.length > 0 || expenses.length > 0 || fuelLogs.length > 0 || shifts.length > 0 || activeShift;
+    const cloudIsEmpty = !data || ((!data.jobs || data.jobs.length === 0) && (!data.expenses || data.expenses.length === 0) && (!data.fuel_logs || data.fuel_logs.length === 0) && (!data.shifts || data.shifts.length === 0) && !data.active_shift);
+    if (cloudIsEmpty && hasLocalData) { await saveCloudData(); setCloudLoaded(true); return; }
     if (data) {
       setJobs(data.jobs || []);
       setExpenses(data.expenses || []);
@@ -688,67 +570,28 @@ useEffect(() => {
       setShifts(data.shifts || []);
       setActiveShift(data.active_shift || null);
       setSettings(data.settings || { fuelCostPerMile: 0.18 });
-    } else {
-      await saveCloudData();
-    }
+    } else { await saveCloudData(); }
     setCloudLoaded(true);
   }
 
-   async function saveCloudData() {
+  async function saveCloudData() {
     if (!session?.user?.id) return;
-
     setCloudStatus("Saving...");
-
-    const payload = {
-      user_id: session.user.id,
-      jobs,
-      expenses,
-      fuel_logs: fuelLogs,
-      shifts,
-      active_shift: activeShift,
-      settings,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await supabase
-      .from("app_data")
-      .upsert(payload, { onConflict: "user_id" });
-
-    if (error) {
-      console.error("Cloud save error:", error);
-      setCloudStatus("Save failed");
-    } else {
-      setCloudStatus("Saved to cloud");
-    }
-   }
-  useEffect(() => {
-  if (session?.user?.id && !cloudLoaded) {
-    loadCloudData();
-  }
-}, [session?.user?.id, cloudLoaded]);
-    useEffect(() => {
-  if (session?.user?.id && cloudLoaded) {
-    saveCloudData();
-  }
-}, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id, cloudLoaded]);
-  if (authLoading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
-        Loading...
-      </div>
-    );
+    const payload = { user_id: session.user.id, jobs, expenses, fuel_logs: fuelLogs, shifts, active_shift: activeShift, settings, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from("app_data").upsert(payload, { onConflict: "user_id" });
+    if (error) { console.error("Cloud save error:", error); setCloudStatus("Save failed"); }
+    else { setCloudStatus("Saved to cloud"); }
   }
 
-  if (!session) {
-    return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
+  useEffect(() => { if (session?.user?.id && !cloudLoaded) loadCloudData(); }, [session?.user?.id, cloudLoaded]);
+  useEffect(() => { if (session?.user?.id && cloudLoaded) saveCloudData(); }, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id, cloudLoaded]);
+
+  async function handleLogout() {
+    setShowUserMenu(false);
+    await supabase.auth.signOut();
+    setCloudLoaded(false);
+    setSession(null);
   }
-  if (!cloudLoaded) {
-  return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>
-      Loading your cloud data...
-    </div>
-  );
-}
 
   function handleStartShift(shiftData) { setActiveShift(shiftData); setShowStart(false); }
   function handleEndShift({ endTs, shiftMiles, endOdometer, fuelLog, expenses: newExp }) {
@@ -766,31 +609,78 @@ useEffect(() => {
     { id: "mileage", label: "Miles", icon: "🛣️" },
     { id: "calc", label: "Fare Check", icon: "⚡" },
   ];
-async function handleLogout() {
-  await supabase.auth.signOut();
-  setCloudLoaded(false);
-  setSession(null);
-}
+
+  if (authLoading) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>Loading...</div>;
+  if (!session) return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
+  if (!cloudLoaded) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", fontFamily: FONT }}>Loading your data...</div>;
+
+  // Get user initials for avatar
+  const userEmail = session?.user?.email || "";
+  const userInitial = userEmail.charAt(0).toUpperCase();
+
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: FONT, paddingBottom: "72px" }}>
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "14px 20px 12px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-        <img src="/logo.png" alt="Driver Ledger" style={{ width: "36px", height: "36px", borderRadius: "8px", objectFit: "contain" }} />
-        <div>
-          <div style={{ fontSize: "17px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Driver Ledger</div>
-          <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Private Hire · Business Manager</div>
-          <div style={{ fontSize: "10px", color: cloudStatus === "Save failed" ? C.red : C.green, fontFamily: FONT, marginTop: "3px", fontWeight: "600" }}>
-  {cloudStatus}
-</div>
-          <Btn onClick={handleLogout}>Log out</Btn>
+
+      {/* ── Header ── */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", alignItems: "center", gap: "10px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <img src="/logo.png" alt="Driver Ledger" style={{ width: "34px", height: "34px", borderRadius: "8px", objectFit: "contain" }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, fontFamily: FONT, lineHeight: 1.2 }}>Driver Ledger</div>
+          <div style={{ fontSize: "10px", color: cloudStatus === "Save failed" ? C.red : cloudStatus === "Saving..." ? C.orange : C.green, fontFamily: FONT, fontWeight: "600", marginTop: "2px" }}>
+            {cloudStatus === "Saving..." ? "⟳ Saving..." : cloudStatus === "Save failed" ? "✕ Save failed" : "✓ Saved to cloud"}
+          </div>
         </div>
         {activeShift && (
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 10px" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.green }} />
-            <span style={{ fontSize: "11px", color: C.green, fontWeight: "600", fontFamily: FONT }}>On Shift</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "5px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 10px" }}>
+            <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: C.green }} />
+            <span style={{ fontSize: "10px", color: C.green, fontWeight: "600", fontFamily: FONT }}>On Shift</span>
           </div>
         )}
+
+        {/* User avatar + menu */}
+        <div ref={menuRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowUserMenu(s => !s)}
+            style={{
+              width: "36px", height: "36px", borderRadius: "50%",
+              background: C.accent, color: "#fff", border: "none",
+              fontSize: "14px", fontWeight: "800", cursor: "pointer",
+              fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+            }}
+          >{userInitial}</button>
+
+          {showUserMenu && (
+            <div style={{
+              position: "absolute", top: "44px", right: 0,
+              background: C.surface, border: `1px solid ${C.border}`,
+              borderRadius: "14px", padding: "8px", minWidth: "200px",
+              boxShadow: "0 8px 30px rgba(0,0,0,0.12)", zIndex: 200,
+            }}>
+              <div style={{ padding: "8px 12px 10px", borderBottom: `1px solid ${C.border}`, marginBottom: "6px" }}>
+                <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>Signed in as</div>
+                <div style={{ fontSize: "13px", fontWeight: "600", color: C.text, fontFamily: FONT, wordBreak: "break-all" }}>{userEmail}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                style={{
+                  width: "100%", padding: "10px 12px", background: "none",
+                  border: "none", borderRadius: "9px", color: C.red,
+                  fontSize: "14px", fontWeight: "600", fontFamily: FONT,
+                  cursor: "pointer", textAlign: "left",
+                  display: "flex", alignItems: "center", gap: "8px",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = C.redBg}
+                onMouseLeave={e => e.currentTarget.style.background = "none"}
+              >
+                <span>🚪</span> Log out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* ── Page content ── */}
       <div style={{ padding: "16px" }}>
         {tab === "dashboard" && <Dashboard jobs={jobs} expenses={expenses} fuelLogs={fuelLogs} shifts={shifts} activeShift={activeShift} settings={settings} onStartShift={() => setShowStart(true)} onEndShift={() => setShowEnd(true)} />}
         {tab === "jobs" && <Jobs jobs={jobs} setJobs={setJobs} settings={settings} activeShift={activeShift} />}
@@ -799,6 +689,7 @@ async function handleLogout() {
         {tab === "calc" && <FareCheck settings={settings} jobs={jobs} setJobs={setJobs} activeShift={activeShift} />}
       </div>
 
+      {/* ── Bottom nav ── */}
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", boxShadow: "0 -2px 10px rgba(0,0,0,0.06)" }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -822,20 +713,39 @@ async function handleLogout() {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, onStartShift, onEndShift }) {
-  const [range, setRange] = useState("week");
+  const [range, setRange] = useState("today");
   const elapsed = useElapsed(activeShift?.startTs);
 
-  const rangeStart = (() => {
-    const now = new Date();
-    if (range === "week") { const d = new Date(now); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); }
-    if (range === "month") { const d = new Date(now); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10); }
-    if (range === "taxyear") return TAX_YEAR_START;
-    return "2000-01-01";
+  // Filter jobs/expenses/fuel by selected range
+  const todayStr = today();
+
+  const fj = (() => {
+    if (range === "shift") return activeShift ? jobs.filter(j => j.shiftId === activeShift.id) : [];
+    if (range === "today") return jobs.filter(j => j.date === todayStr);
+    if (range === "week") { const d = new Date(); d.setDate(d.getDate() - 7); return jobs.filter(j => j.date >= d.toISOString().slice(0, 10)); }
+    if (range === "month") { const d = new Date(); d.setMonth(d.getMonth() - 1); return jobs.filter(j => j.date >= d.toISOString().slice(0, 10)); }
+    if (range === "taxyear") return jobs.filter(j => j.date >= TAX_YEAR_START);
+    return jobs; // all
   })();
 
-  const fj = jobs.filter(j => j.date >= rangeStart);
-  const fe = expenses.filter(e => e.date >= rangeStart);
-  const ff = fuelLogs.filter(f => f.date >= rangeStart);
+  const fe = (() => {
+    if (range === "shift") return []; // expenses not linked to shifts
+    if (range === "today") return expenses.filter(e => e.date === todayStr);
+    if (range === "week") { const d = new Date(); d.setDate(d.getDate() - 7); return expenses.filter(e => e.date >= d.toISOString().slice(0, 10)); }
+    if (range === "month") { const d = new Date(); d.setMonth(d.getMonth() - 1); return expenses.filter(e => e.date >= d.toISOString().slice(0, 10)); }
+    if (range === "taxyear") return expenses.filter(e => e.date >= TAX_YEAR_START);
+    return expenses;
+  })();
+
+  const ff = (() => {
+    if (range === "shift") return [];
+    if (range === "today") return fuelLogs.filter(f => f.date === todayStr);
+    if (range === "week") { const d = new Date(); d.setDate(d.getDate() - 7); return fuelLogs.filter(f => f.date >= d.toISOString().slice(0, 10)); }
+    if (range === "month") { const d = new Date(); d.setMonth(d.getMonth() - 1); return fuelLogs.filter(f => f.date >= d.toISOString().slice(0, 10)); }
+    if (range === "taxyear") return fuelLogs.filter(f => f.date >= TAX_YEAR_START);
+    return fuelLogs;
+  })();
+
   const grossFares = fj.reduce((s, j) => s + (j.fare || 0), 0);
   const opCuts = fj.reduce((s, j) => s + (j.opCut || 0), 0);
   const netFares = grossFares - opCuts;
@@ -843,7 +753,18 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
   const otherExp = fe.reduce((s, e) => s + (e.amount || 0), 0);
   const netProfit = netFares - fuelSpend - otherExp;
   const totalMins = fj.reduce((s, j) => s + (j.minutes || 0), 0);
-  const hourlyRate = totalMins > 0 ? netFares / (totalMins / 60) : 0;
+
+  // Hourly rate: use shift duration if viewing current shift, otherwise job minutes
+  const hourlyRate = (() => {
+    if (range === "shift" && activeShift) {
+      const shiftMins = (Date.now() - activeShift.startTs) / 60000;
+      return shiftMins > 0 ? netFares / (shiftMins / 60) : 0;
+    }
+    return totalMins > 0 ? netFares / (totalMins / 60) : 0;
+  })();
+
+  const hourlyLabel = range === "shift" ? "Shift £/hr" : "Ride-time £/hr";
+
   const allBusinessMiles = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
   const hmrc = allBusinessMiles <= HMRC_THRESHOLD ? allBusinessMiles * HMRC_RATE_1 : HMRC_THRESHOLD * HMRC_RATE_1 + (allBusinessMiles - HMRC_THRESHOLD) * HMRC_RATE_2;
 
@@ -854,10 +775,24 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
     return { op, count: opJobs.length, net, hr: mins > 0 ? net / (mins / 60) : 0 };
   }).filter(x => x.count > 0).sort((a, b) => b.net - a.net);
 
-  const ranges = [{ id: "week", label: "7 Days" }, { id: "month", label: "Month" }, { id: "taxyear", label: "Tax Year" }, { id: "all", label: "All" }];
+  // Range buttons — hide "Current Shift" if no active shift
+  const ranges = [
+    ...(activeShift ? [{ id: "shift", label: "This Shift" }] : []),
+    { id: "today", label: "Today" },
+    { id: "week", label: "7 Days" },
+    { id: "month", label: "Month" },
+    { id: "taxyear", label: "Tax Year" },
+    { id: "all", label: "All" },
+  ];
+
+  // If active shift ends and range was "shift", fall back to today
+  useEffect(() => {
+    if (range === "shift" && !activeShift) setRange("today");
+  }, [activeShift]);
 
   return (
     <div>
+      {/* Shift button */}
       {!activeShift ? (
         <button onClick={onStartShift} style={{
           width: "100%", padding: "22px", marginBottom: "20px",
@@ -875,7 +810,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
       ) : (
         <div style={{ marginBottom: "20px" }}>
           <div style={{ background: "linear-gradient(135deg, #16A34A, #15803D)", borderRadius: "16px", padding: "18px", marginBottom: "10px", boxShadow: "0 4px 16px rgba(22,163,74,0.25)", color: "#fff" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: "12px", opacity: 0.85, fontWeight: "600", fontFamily: FONT }}>● SHIFT ACTIVE</div>
                 <div style={{ fontSize: "28px", fontWeight: "800", marginTop: "2px", fontFamily: FONT }}>{elapsed}</div>
@@ -893,19 +828,29 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
+      {/* Range selector — scrollable so all fit on small screens */}
+      <div style={{ display: "flex", gap: "5px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}`, overflowX: "auto" }}>
         {ranges.map(r => (
-          <button key={r.id} onClick={() => setRange(r.id)} style={{ flex: 1, padding: "8px 4px", background: range === r.id ? C.accent : "transparent", color: range === r.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer", transition: "all 0.15s" }}>{r.label}</button>
+          <button key={r.id} onClick={() => setRange(r.id)} style={{
+            flexShrink: 0, padding: "8px 10px",
+            background: range === r.id ? C.accent : "transparent",
+            color: range === r.id ? "#fff" : C.sub,
+            border: "none", borderRadius: "9px",
+            fontSize: "11px", fontWeight: "700", fontFamily: FONT, cursor: "pointer",
+            transition: "all 0.15s", whiteSpace: "nowrap",
+          }}>{r.label}</button>
         ))}
       </div>
 
+      {/* Stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
-        <StatCard label="Net Profit" value={fmt(netProfit)} color={netProfit >= 0 ? C.green : C.red} sub={`${fj.length} jobs`} />
+        <StatCard label="Net Profit" value={fmt(netProfit)} color={netProfit >= 0 ? C.green : C.red} sub={`${fj.length} job${fj.length !== 1 ? "s" : ""}`} />
         <StatCard label="Gross Fares" value={fmt(grossFares)} color={C.accent} />
-        <StatCard label="Effective £/hr" value={totalMins > 0 ? fmt(hourlyRate) : "—"} color={C.blue} sub="after op. cut" />
+        <StatCard label={hourlyLabel} value={hourlyRate > 0 ? fmt(hourlyRate) : "—"} color={C.blue} sub="after op. cut" />
         <StatCard label="Total Costs" value={fmt(fuelSpend + otherExp)} color={C.red} />
       </div>
 
+      {/* P&L */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
         <SectionTitle>P&L Breakdown</SectionTitle>
         <Row label="Gross fares" value={fmt(grossFares)} />
@@ -916,6 +861,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
         <Row label="Net profit" value={fmt(netProfit)} color={netProfit >= 0 ? C.green : C.red} bold />
       </div>
 
+      {/* By operator */}
       {byOp.length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
           <SectionTitle>By Operator</SectionTitle>
@@ -931,6 +877,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
         </div>
       )}
 
+      {/* HMRC — always shows tax year total */}
       <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "16px" }}>
         <SectionTitle>HMRC Mileage (Tax Year)</SectionTitle>
         <Row label="Business miles logged" value={`${allBusinessMiles.toFixed(0)} mi`} />
@@ -943,28 +890,22 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 function Jobs({ jobs, setJobs, settings, activeShift }) {
-  const [logMode, setLogMode] = useState("job"); // job | day
-  useEffect(() => {
-  if (logMode === "notes") {
-    setLogMode("job");
-  }
-}, [logMode]);
-  const [jobForm, setJobForm] = useState({
-    date: today(),
-    operator: "Uber",
-    fare: "",
-    isNet: "yes",
-    commissionPct: "",
-    jobMiles: "",
-    deadMiles: "",
-    minutes: "",
-    notes: ""
-  });
-  const [dayForm, setDayForm] = useState({ date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" });
-  const [notesText, setNotesText] = useState("");
-  const [parsing, setParsing] = useState(false);
-  const [parseResult, setParseResult] = useState(null);
+  const [logMode, setLogMode] = useState("job");
+
+  // ── Draft autosave — load from localStorage on mount ──────────────────────
+  const defaultJobForm = { date: today(), operator: "Uber", fare: "", isNet: "yes", commissionPct: "", jobMiles: "", deadMiles: "", minutes: "", notes: "" };
+  const defaultDayForm = { date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" };
+
+  const [jobForm, setJobForm] = useState(() => load(DRAFT_JOB_KEY, defaultJobForm));
+  const [dayForm, setDayForm] = useState(() => load(DRAFT_DAY_KEY, defaultDayForm));
   const [added, setAdded] = useState(false);
+
+  // Save drafts to localStorage whenever form changes
+  useEffect(() => { save(DRAFT_JOB_KEY, jobForm); }, [jobForm]);
+  useEffect(() => { save(DRAFT_DAY_KEY, dayForm); }, [dayForm]);
+
+  const hasDraftJob = jobForm.fare || jobForm.jobMiles || jobForm.notes;
+  const hasDraftDay = dayForm.totalFare || dayForm.totalJobs || dayForm.notes;
 
   function calcNet(fare, isNet, commPct) {
     if (isNet === "yes") return parseFloat(fare) || 0;
@@ -980,7 +921,9 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
     const opCut = fare - netFare;
     const fuelCost = (jobMiles + (parseFloat(jobForm.deadMiles) || 0)) * settings.fuelCostPerMile;
     setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator, fare, netFare, opCut, jobMiles, deadMiles: parseFloat(jobForm.deadMiles) || 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings: netFare - fuelCost, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
-    setJobForm(f => ({ ...f, fare: "", jobMiles: "", deadMiles: "", minutes: "", notes: "" }));
+    // Clear draft after successful submit
+    clearDraft(DRAFT_JOB_KEY);
+    setJobForm(defaultJobForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
   }
 
@@ -991,43 +934,8 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
     const opCut = fare - netFare;
     const fuelCost = (parseFloat(dayForm.totalMiles) || 0) * settings.fuelCostPerMile;
     setJobs(prev => [{ id: Date.now(), date: dayForm.date, operator: dayForm.operator, fare, netFare, opCut, jobMiles: parseFloat(dayForm.totalMiles) || 0, deadMiles: 0, minutes: 0, netEarnings: netFare - fuelCost, notes: dayForm.notes || `${dayForm.totalJobs || "?"} jobs`, shiftId: activeShift?.id || null, type: "day" }, ...prev]);
-    setDayForm(f => ({ ...f, totalFare: "", totalJobs: "", totalMiles: "", notes: "" }));
-    setAdded(true); setTimeout(() => setAdded(false), 2000);
-  }
-
-  async function parseNotes() {
-    if (!notesText.trim()) return;
-    setParsing(true); setParseResult(null);
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: `You extract private hire driver earnings from free text notes. Return ONLY valid JSON array, no markdown. Each item: { "date": "YYYY-MM-DD or null", "operator": "Uber|Bolt|Airport Transfer|Local Operator|Other", "fare": number, "isNet": true, "jobMiles": number or null, "notes": "string" }. Today is ${today()}. If no date mentioned assume today. Fare is always the amount mentioned. If weekly/daily totals mentioned, create one entry per operator per day/period.`,
-          messages: [{ role: "user", content: `Extract earnings from these notes: ${notesText}` }]
-        })
-      });
-      const data = await res.json();
-      const text = data.content?.map(b => b.text || "").join("") || "";
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
-      setParseResult(parsed);
-    } catch { setParseResult([]); }
-    setParsing(false);
-  }
-
-  function importParsed() {
-    if (!parseResult?.length) return;
-    const newJobs = parseResult.map(p => {
-      const fare = p.fare || 0;
-      const netFare = p.isNet ? fare : fare * 0.75;
-      const opCut = fare - netFare;
-      const fuelCost = (p.jobMiles || 0) * settings.fuelCostPerMile;
-      return { id: Date.now() + Math.random(), date: p.date || today(), operator: p.operator || "Other", fare, netFare, opCut, jobMiles: p.jobMiles || 0, deadMiles: 0, minutes: 0, netEarnings: netFare - fuelCost, notes: p.notes || "", shiftId: null, type: "imported" };
-    });
-    setJobs(prev => [...newJobs, ...prev]);
-    setNotesText(""); setParseResult(null);
+    clearDraft(DRAFT_DAY_KEY);
+    setDayForm(defaultDayForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
   }
 
@@ -1047,7 +955,7 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
 
   return (
     <div>
-      <TabIntro storageKey="intro_jobs" icon="🚖" title="Jobs Tab" body="Log your earnings here. Choose how you want to enter data — job by job for full detail, daily totals for speed, or paste your notes and let AI extract everything automatically." />
+      <TabIntro storageKey="intro_jobs" icon="🚖" title="Jobs Tab" body="Log your earnings here. Choose how you want to enter data — job by job for full detail, or daily totals for speed. Your form is saved automatically if you switch apps." />
 
       {activeShift && (
         <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "12px", padding: "10px 14px", marginBottom: "16px", fontSize: "13px", color: C.green, fontWeight: "600", fontFamily: FONT }}>
@@ -1055,7 +963,6 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
         </div>
       )}
 
-      {/* Mode selector */}
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
         {[{ id: "job", label: "By Job" }, { id: "day", label: "By Day" }].map(m => (
           <button key={m.id} onClick={() => setLogMode(m.id)} style={{ flex: 1, padding: "9px 4px", background: logMode === m.id ? C.accent : "transparent", color: logMode === m.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{m.label}</button>
@@ -1065,7 +972,17 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
       {/* By Job */}
       {logMode === "job" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
-          <SectionTitle>Log a Single Job</SectionTitle>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <SectionTitle>Log a Single Job</SectionTitle>
+            {hasDraftJob && (
+              <button onClick={() => { clearDraft(DRAFT_JOB_KEY); setJobForm(defaultJobForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT, whiteSpace: "nowrap" }}>Clear draft</button>
+            )}
+          </div>
+          {hasDraftJob && (
+            <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>
+              📝 Draft restored — your form was saved when you switched away
+            </div>
+          )}
           <Input label="Date" type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value }))} />
           <Select label="Operator" options={OPERATORS} value={jobForm.operator} onChange={e => setJobForm(f => ({ ...f, operator: e.target.value }))} />
           <Input label="Fare (£)" tooltip="The amount shown for this job before any deductions." type="number" placeholder="e.g. 22.00" value={jobForm.fare} onChange={e => setJobForm(f => ({ ...f, fare: e.target.value }))} />
@@ -1082,9 +999,19 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
       {/* By Day */}
       {logMode === "day" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
-          <SectionTitle>Log Daily Total</SectionTitle>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <SectionTitle>Log Daily Total</SectionTitle>
+            {hasDraftDay && (
+              <button onClick={() => { clearDraft(DRAFT_DAY_KEY); setDayForm(defaultDayForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT, whiteSpace: "nowrap" }}>Clear draft</button>
+            )}
+          </div>
+          {hasDraftDay && (
+            <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>
+              📝 Draft restored — your form was saved when you switched away
+            </div>
+          )}
           <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "14px", fontSize: "13px", color: C.blue, fontFamily: FONT }}>
-            Use this to log your total earnings for a full day or session with one operator. Great for end-of-day logging.
+            Use this to log your total earnings for a full day or session with one operator.
           </div>
           <Input label="Date" type="date" value={dayForm.date} onChange={e => setDayForm(f => ({ ...f, date: e.target.value }))} />
           <Select label="Operator" options={OPERATORS} value={dayForm.operator} onChange={e => setDayForm(f => ({ ...f, operator: e.target.value }))} />
@@ -1095,49 +1022,6 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
           <Input label="Notes (optional)" type="text" placeholder="e.g. Friday evening shift" value={dayForm.notes} onChange={e => setDayForm(f => ({ ...f, notes: e.target.value }))} />
           <Btn onClick={addDay} disabled={!dayForm.totalFare}>Add Day</Btn>
           {added && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Added</div>}
-        </div>
-      )}
-
-      {/* Paste Notes */}
-      {logMode === "notes" && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
-          <SectionTitle>Paste Your Notes</SectionTitle>
-          <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "14px", fontSize: "13px", color: C.blue, lineHeight: "1.7", fontFamily: FONT }}>
-            Paste or type your notes in any format. For example:<br />
-            <span style={{ fontStyle: "italic", color: C.sub }}>"Mon — Uber £87, 6 jobs, 94 miles. Bolt £34, 2 jobs"</span><br />
-            The AI will read it and extract your earnings automatically.
-          </div>
-          <Field label="Your notes">
-            <textarea
-              style={{ ...inputStyle, height: "120px", resize: "vertical", lineHeight: "1.6" }}
-              placeholder="Paste or type your earnings notes here..."
-              value={notesText}
-              onChange={e => setNotesText(e.target.value)}
-            />
-          </Field>
-          <Btn onClick={parseNotes} disabled={!notesText.trim() || parsing} color={C.blue}>
-            {parsing ? "Reading your notes…" : "Extract Earnings with AI"}
-          </Btn>
-
-          {parseResult !== null && (
-            <div style={{ marginTop: "16px" }}>
-              <SectionTitle>What we found</SectionTitle>
-              {parseResult.length === 0
-                ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>Couldn't extract any earnings. Try rewording your notes.</div>
-                : <>
-                  {parseResult.map((p, i) => (
-                    <div key={i} style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "8px", fontSize: "13px", fontFamily: FONT }}>
-                      <div style={{ fontWeight: "700", color: C.text }}>{p.operator} · {p.date || "Today"}</div>
-                      <div style={{ color: C.green, fontWeight: "700", fontSize: "16px" }}>{fmt(p.fare)}</div>
-                      {p.notes && <div style={{ color: C.sub, marginTop: "2px" }}>{p.notes}</div>}
-                    </div>
-                  ))}
-                  <Btn onClick={importParsed} color={C.green}>✓ Import {parseResult.length} entr{parseResult.length === 1 ? "y" : "ies"}</Btn>
-                </>
-              }
-            </div>
-          )}
-          {added && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Imported</div>}
         </div>
       )}
 
@@ -1181,32 +1065,23 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
   const [saved, setSaved] = useState(false);
 
   function toggleCharge(id) { setMyCharges(prev => ({ ...prev, [id]: !prev[id] })); setResult(null); }
-
   const totalCharges = PRESET_CHARGES.filter(c => myCharges[c.id]).reduce((s, c) => s + parseFloat(customAmts[c.id] || c.amount), 0);
 
   function calculate() {
     const fareNum = parseFloat(fare);
-    const jobMilesNum = parseFloat(jobMiles) || 0;
-    const deadMilesNum = parseFloat(deadMiles) || 0;
-    const minsNum = parseFloat(minutes) || 0;
     if (!fareNum) return;
     const netFare = isNet === "yes" ? fareNum : fareNum * (1 - (parseFloat(commPct) || 0) / 100);
     const opCut = fareNum - netFare;
-    const fuelCost = (jobMilesNum + deadMilesNum) * settings.fuelCostPerMile;
+    const fuelCost = ((parseFloat(jobMiles) || 0) + (parseFloat(deadMiles) || 0)) * settings.fuelCostPerMile;
     const net = netFare - fuelCost - totalCharges;
-    const hourly = minsNum > 0 ? net / (minsNum / 60) : null;
+    const hourly = parseFloat(minutes) > 0 ? net / (parseFloat(minutes) / 60) : null;
     setResult({ fareNum, netFare, opCut, fuelCost, totalCharges, net, hourly });
     setSaved(false);
   }
 
   function saveJob() {
     if (!result) return;
-    setJobs(prev => [{
-      id: Date.now(), date: today(), operator, fare: result.fareNum, netFare: result.netFare,
-      opCut: result.opCut, jobMiles: parseFloat(jobMiles) || 0, deadMiles: parseFloat(deadMiles) || 0,
-      minutes: parseFloat(minutes) || 0, netEarnings: result.net, notes: "from Fare Check",
-      shiftId: activeShift?.id || null, type: "job",
-    }, ...prev]);
+    setJobs(prev => [{ id: Date.now(), date: today(), operator, fare: result.fareNum, netFare: result.netFare, opCut: result.opCut, jobMiles: parseFloat(jobMiles) || 0, deadMiles: parseFloat(deadMiles) || 0, minutes: parseFloat(minutes) || 0, netEarnings: result.net, notes: "from Fare Check", shiftId: activeShift?.id || null, type: "job" }, ...prev]);
     setSaved(true);
   }
 
@@ -1219,16 +1094,12 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
   return (
     <div>
       <TabIntro storageKey="intro_calc" icon="⚡" title="Fare Check" body="Use this before accepting a planned job or airport run — not for ASAP jobs where you have seconds to decide. Enter the fare, distances and any charges you'll pay to see your real take-home." />
-
       <div style={{ fontSize: "20px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>Is It Worth It?</div>
       <div style={{ fontSize: "13px", color: C.sub, marginBottom: "18px", fontFamily: FONT }}>Enter the job details to calculate your real take-home pay.</div>
-
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
         <div style={{ fontSize: "12px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>Fuel cost: <span style={{ color: C.accent, fontWeight: "700" }}>£{settings.fuelCostPerMile.toFixed(2)}/mi</span> — update in Costs tab</div>
-
         <Select label="Operator" tooltip="Select who the job is with." options={OPERATORS} value={operator} onChange={e => { setOperator(e.target.value); setResult(null); }} />
         <Input label="Fare offered (£)" tooltip="The amount the operator is showing for this job." type="number" placeholder="e.g. 35.00" value={fare} onChange={e => { setFare(e.target.value); setResult(null); }} />
-
         <div style={{ marginBottom: "14px" }}>
           <FieldLabel label="Is this your net amount?" tooltip="Net means you keep this exact amount. If commission will be taken, select No and enter the percentage." />
           <div style={{ display: "flex", gap: "8px", marginBottom: isNet === "no" ? "10px" : 0 }}>
@@ -1238,12 +1109,9 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
           </div>
           {isNet === "no" && <input style={{ ...inputStyle, marginTop: "8px" }} type="number" placeholder="Commission % (e.g. 25)" value={commPct} onChange={e => { setCommPct(e.target.value); setResult(null); }} />}
         </div>
-
         <Input label="Job miles (pickup to dropoff)" tooltip="Distance of the actual trip from pickup to where you drop the passenger." type="number" placeholder="e.g. 18" value={jobMiles} onChange={e => { setJobMiles(e.target.value); setResult(null); }} />
         <Input label="Dead miles to pickup" tooltip="How far you need to travel to reach the pickup from where you currently are. These cost you fuel but earn nothing." type="number" placeholder="e.g. 4" value={deadMiles} onChange={e => { setDeadMiles(e.target.value); setResult(null); }} />
-        <Input label="Total time (minutes)" tooltip="Total time from leaving your current location to dropping the passenger off. Includes travel to pickup plus the trip itself. Used to calculate your effective hourly rate." type="number" placeholder="e.g. 45" value={minutes} onChange={e => { setMinutes(e.target.value); setResult(null); }} />
-
-        {/* My charges */}
+        <Input label="Total time (minutes)" tooltip="Total time from leaving your current location to dropping the passenger off. Used to calculate your effective hourly rate." type="number" placeholder="e.g. 45" value={minutes} onChange={e => { setMinutes(e.target.value); setResult(null); }} />
         <div style={{ marginBottom: "14px" }}>
           <FieldLabel label="Charges I'll pay" tooltip="Any fees you personally pay for this job — airport drop charges, tolls, ULEZ etc. Tap to select. Edit the amount if it differs." />
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -1262,10 +1130,8 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
           </div>
           {totalCharges > 0 && <div style={{ fontSize: "12px", color: C.red, marginTop: "8px", fontFamily: FONT, fontWeight: "600" }}>Total charges: {fmt(totalCharges)}</div>}
         </div>
-
         <Btn onClick={calculate} disabled={!fare}>Calculate</Btn>
       </div>
-
       {result && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
           <SectionTitle>Breakdown</SectionTitle>
@@ -1275,11 +1141,7 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
           {result.totalCharges > 0 && <Row label="My charges" value={`− ${fmt(result.totalCharges)}`} color={C.red} />}
           <Row label="Take-home" value={fmt(result.net)} color={result.net > 0 ? C.green : C.red} bold />
           {result.hourly !== null && <Row label="Effective hourly rate" value={`${fmt(result.hourly)}/hr`} color={C.accent} />}
-
-          <div style={{ background: verdict.bg, border: `1px solid ${verdict.border}`, borderRadius: "12px", padding: "14px", textAlign: "center", fontWeight: "800", color: verdict.color, fontSize: "16px", margin: "16px 0 12px", fontFamily: FONT }}>
-            {verdict.text}
-          </div>
-
+          <div style={{ background: verdict.bg, border: `1px solid ${verdict.border}`, borderRadius: "12px", padding: "14px", textAlign: "center", fontWeight: "800", color: verdict.color, fontSize: "16px", margin: "16px 0 12px", fontFamily: FONT }}>{verdict.text}</div>
           {!saved
             ? <Btn onClick={saveJob} color="#6B7280">+ Save to Job Diary</Btn>
             : <div style={{ textAlign: "center", color: C.green, fontSize: "13px", padding: "8px", fontFamily: FONT }}>✓ Saved</div>
@@ -1317,20 +1179,17 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
   return (
     <div>
       <TabIntro storageKey="intro_expenses" icon="🧾" title="Costs Tab" body="Log all your business expenses here — fuel fill-ups, car washes, insurance, TfL licence renewals and anything else. These are deducted from your earnings in the P&L on the Home tab." />
-
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px", marginBottom: "16px" }}>
         <SectionTitle>Settings</SectionTitle>
         <Field label="Fuel cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi. This is used in all profit calculations." tooltip="Enter how much fuel costs you per mile driven. A rough way to calculate: fill up, note the cost and miles driven since last fill-up, then divide cost by miles.">
           <input style={inputStyle} type="number" step="0.01" value={settings.fuelCostPerMile} onChange={e => setSettings(s => ({ ...s, fuelCostPerMile: parseFloat(e.target.value) || 0 }))} />
         </Field>
       </div>
-
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
         {[{ id: "expense", label: "Add Expense" }, { id: "fuel", label: "Log Fuel" }, { id: "history", label: "History" }].map(t => (
           <button key={t.id} onClick={() => setSubTab(t.id)} style={{ flex: 1, padding: "9px 4px", background: subTab === t.id ? C.accent : "transparent", color: subTab === t.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "11px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{t.label}</button>
         ))}
       </div>
-
       {subTab === "expense" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
           <Input label="Date" type="date" value={expForm.date} onChange={e => setExpForm(f => ({ ...f, date: e.target.value }))} />
@@ -1341,7 +1200,6 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           {expAdded && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Added</div>}
         </div>
       )}
-
       {subTab === "fuel" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
           <Input label="Date" type="date" value={fuelForm.date} onChange={e => setFuelForm(f => ({ ...f, date: e.target.value }))} />
@@ -1353,7 +1211,6 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           {fuelAdded && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Logged</div>}
         </div>
       )}
-
       {subTab === "history" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
@@ -1413,7 +1270,6 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
   return (
     <div>
       <TabIntro storageKey="intro_mileage" icon="🛣️" title="Miles Tab" body="Track your business mileage for HMRC. Every completed shift logs your miles automatically. You can claim 45p per mile for the first 10,000 business miles each tax year, then 25p — this is instead of claiming actual fuel costs." />
-
       <SectionTitle>Mileage Overview</SectionTitle>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "18px" }}>
         <StatCard label="Business Miles" value={totalBusiness.toFixed(0)} color={C.accent} sub="from shift logs" />
@@ -1421,7 +1277,6 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
         <StatCard label="Job Miles" value={totalJob.toFixed(0)} color={C.blue} sub="from job diary" />
         <StatCard label="Dead Mile %" value={`${deadPct}%`} color={parseFloat(deadPct) > 30 ? C.red : C.orange} sub="of job miles" />
       </div>
-
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
         <SectionTitle>HMRC Mileage Allowance</SectionTitle>
         <Row label="Business miles" value={`${totalBusiness.toFixed(0)} mi`} />
@@ -1433,36 +1288,26 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
           : <div style={{ fontSize: "12px", color: C.orange, marginTop: "10px", fontFamily: FONT }}>You've passed 10,000 miles — now earning 25p/mile.</div>
         }
       </div>
-
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
         <SectionTitle>Shift Log ({shifts.length} shifts)</SectionTitle>
         {shifts.length === 0
           ? <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>No completed shifts yet. Use Start Shift on the home tab.</div>
           : shifts.slice(0, 10).map(sh => (
-           <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: "10px" }}>
-  <div style={{ flex: 1 }}>
-    <div style={{ display: "flex", justifyContent: "space-between" }}>
-      <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
-      <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>
-        {sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}
-      </span>
-    </div>
-    <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
-      {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
-    </div>
-  </div>
-
-  <button
-    onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))}
-    style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}
-  >
-    ✕
-  </button>
-</div>
+            <div key={sh.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", gap: "10px" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "13px", color: C.sub, fontFamily: FONT }}>{dateStr(sh.startTs)}</span>
+                  <span style={{ fontSize: "13px", color: C.accent, fontWeight: "700", fontFamily: FONT }}>{sh.shiftMiles > 0 ? `${sh.shiftMiles.toFixed(0)} mi` : "No mileage"}</span>
+                </div>
+                <div style={{ color: C.muted, fontSize: "12px", marginTop: "2px", fontFamily: FONT }}>
+                  {timeStr(sh.startTs)} → {sh.endTs ? timeStr(sh.endTs) : "—"} · {sh.mileageMode === "trip" ? "Trip meter" : sh.mileageMode === "odometer" ? "Odometer" : "No tracking"}
+                </div>
+              </div>
+              <button onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+            </div>
           ))
         }
       </div>
-
       {mpg && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
           <SectionTitle>Fuel Efficiency</SectionTitle>
@@ -1470,7 +1315,6 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
           <div style={{ fontSize: "12px", color: C.sub, marginTop: "8px", fontFamily: FONT }}>Calculated from odometer readings in your fuel log.</div>
         </div>
       )}
-
       <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "16px" }}>
         <SectionTitle>HMRC Tip</SectionTitle>
         <div style={{ fontSize: "13px", color: C.sub, lineHeight: "1.8", fontFamily: FONT }}>
