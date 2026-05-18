@@ -1850,100 +1850,97 @@ function SettingsPage({ settings, setSettings }) {
 // ─── Charges Setup Wizard ─────────────────────────────────────────────────────
 function ChargesSetupWizard({ settings, setSettings, onDone }) {
   const [step, setStep] = useState(0);
-
-  // savedCharges is array of { id, label, amount } — amount is editable
-  const savedCharges = settings.savedCharges || [];
-
-  function isSelected(id) { return savedCharges.some(c => c.id === id); }
-
-  function toggleCharge(charge) {
-    const already = savedCharges.some(c => c.id === charge.id);
-    if (already) {
-      setSettings(s => ({ ...s, savedCharges: (s.savedCharges || []).filter(c => c.id !== charge.id) }));
-    } else {
-      setSettings(s => ({ ...s, savedCharges: [...(s.savedCharges || []), { id: charge.id, label: charge.label, amount: charge.amount, group: charge.id.includes("pickup") ? "pickup" : charge.id.includes("drop") ? "dropoff" : "road" }] }));
-    }
-  }
-
-  function updateAmount(id, val) {
-    setSettings(s => ({ ...s, savedCharges: (s.savedCharges || []).map(c => c.id === id ? { ...c, amount: parseFloat(val) || c.amount } : c) }));
-  }
+  // Use local state — nothing saved to settings until Finish
+  const [selections, setSelections] = useState(() => {
+    const result = {};
+    (settings.savedCharges || []).forEach(c => { result[c.id] = c.amount; });
+    return result;
+  });
 
   const steps = [
-    { key: "airports_dropoff", title: "✈️ Airport Drop-offs", desc: "Select airports you regularly drop passengers at. Tap to select, then edit the amount if needed." },
+    { key: "airports_dropoff", title: "✈️ Airport Drop-offs", desc: "Select airports you regularly drop passengers at. Tap to select, edit the amount if needed." },
     { key: "airports_pickup", title: "🅿️ Airport Pick-ups", desc: "Select airports where you park to collect passengers." },
     { key: "road_charges", title: "🛣️ Road & Congestion Charges", desc: "Select road charges, tolls or clean air zones you regularly pay." },
   ];
+
+  function toggle(c) {
+    setSelections(prev => {
+      const next = { ...prev };
+      if (next[c.id] !== undefined) { delete next[c.id]; }
+      else { next[c.id] = c.amount; }
+      return next;
+    });
+  }
+
+  function updateAmount(id, val) {
+    setSelections(prev => ({ ...prev, [id]: parseFloat(val) || prev[id] }));
+  }
+
+  function finish() {
+    const allCharges = [...UK_CHARGES.airports_dropoff, ...UK_CHARGES.airports_pickup, ...UK_CHARGES.road_charges];
+    const saved = Object.entries(selections).map(([id, amount]) => {
+      const charge = allCharges.find(c => c.id === id);
+      if (!charge) return null;
+      const group = UK_CHARGES.airports_dropoff.find(c => c.id === id) ? "dropoff"
+        : UK_CHARGES.airports_pickup.find(c => c.id === id) ? "pickup" : "road";
+      return { id, label: charge.label, amount, group };
+    }).filter(Boolean);
+    setSettings(s => ({ ...s, savedCharges: saved }));
+    onDone();
+  }
+
+  const totalSelected = Object.keys(selections).length;
 
   if (step >= steps.length) {
     return (
       <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "20px", textAlign: "center" }}>
         <div style={{ fontSize: "32px", marginBottom: "8px" }}>✓</div>
-        <div style={{ fontSize: "16px", fontWeight: "800", color: C.green, marginBottom: "6px", fontFamily: FONT }}>Charges set up!</div>
-        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "6px", fontFamily: FONT }}>
-          {savedCharges.length} charge{savedCharges.length !== 1 ? "s" : ""} saved. These appear in Quick Add when logging expenses.
+        <div style={{ fontSize: "16px", fontWeight: "800", color: C.green, marginBottom: "6px", fontFamily: FONT }}>Almost done!</div>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>
+          {totalSelected} charge{totalSelected !== 1 ? "s" : ""} selected. Tap Save to confirm.
         </div>
-        <div style={{ fontSize: "12px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>You can always add more or adjust amounts from the Costs tab.</div>
-        <Btn onClick={onDone} color={C.green}>Done</Btn>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button onClick={() => setStep(steps.length - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>
+          <div style={{ flex: 2 }}><Btn onClick={finish} color={C.green}>Save charges</Btn></div>
+        </div>
       </div>
     );
   }
 
   const current = steps[step];
   const charges = UK_CHARGES[current.key];
+  const selectedOnStep = charges.filter(c => selections[c.id] !== undefined).length;
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-      {/* Progress bar */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
         {steps.map((s, i) => <div key={i} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= step ? C.accent : C.border }} />)}
       </div>
-
       <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>{current.title}</div>
       <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>{current.desc}</div>
 
-      {/* Charge list — 1 per row, clear layout */}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
         {charges.map(c => {
-          const selected = isSelected(c.id);
-          const saved = savedCharges.find(x => x.id === c.id);
+          const selected = selections[c.id] !== undefined;
+          const amt = selections[c.id] ?? c.amount;
           return (
-            <div key={c.id} style={{
-              borderRadius: "12px", overflow: "hidden",
-              border: `2px solid ${selected ? C.green : C.border}`,
-              background: selected ? C.greenBg : C.light,
-            }}>
-              {/* Tap row to select/deselect */}
-              <button onClick={() => toggleCharge(c)} style={{
-                width: "100%", display: "flex", alignItems: "center", gap: "12px",
-                padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left",
-              }}>
-                <div style={{ width: "22px", height: "22px", borderRadius: "6px", flexShrink: 0, background: selected ? C.green : C.border, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div key={c.id} style={{ borderRadius: "12px", border: `2px solid ${selected ? C.green : C.border}`, background: selected ? C.greenBg : C.light, overflow: "hidden" }}>
+              <button onClick={() => toggle(c)} style={{ width: "100%", display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                <div style={{ width: "22px", height: "22px", borderRadius: "6px", flexShrink: 0, background: selected ? C.green : "#D1D5DB", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {selected && <span style={{ color: "#fff", fontSize: "13px", fontWeight: "700" }}>✓</span>}
                 </div>
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, textAlign: "left" }}>
                   <div style={{ fontSize: "13px", fontWeight: "700", color: selected ? C.green : C.text, fontFamily: FONT }}>{c.label}</div>
                   {c.note && <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT, marginTop: "2px" }}>{c.note}</div>}
                 </div>
-                <div style={{ fontSize: "15px", fontWeight: "800", color: selected ? C.green : C.sub, fontFamily: FONT, flexShrink: 0 }}>
-                  £{(saved?.amount ?? c.amount).toFixed(2)}
-                </div>
+                <div style={{ fontSize: "15px", fontWeight: "800", color: selected ? C.green : C.sub, fontFamily: FONT, flexShrink: 0 }}>£{Number(amt).toFixed(2)}</div>
               </button>
-
-              {/* Editable amount — shown when selected */}
               {selected && (
                 <div style={{ padding: "0 14px 12px", display: "flex", alignItems: "center", gap: "10px" }}>
                   <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT, flexShrink: 0 }}>Edit amount:</div>
                   <div style={{ position: "relative", flex: 1 }}>
-                    <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: "14px", fontFamily: FONT }}>£</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={saved?.amount ?? c.amount}
-                      onChange={e => updateAmount(c.id, e.target.value)}
-                      onClick={e => e.stopPropagation()}
-                      style={{ ...inputStyle, paddingLeft: "26px", padding: "8px 10px 8px 26px", fontSize: "14px", fontWeight: "700" }}
-                    />
+                    <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: "14px" }}>£</span>
+                    <input type="number" step="0.01" value={amt} onChange={e => updateAmount(c.id, e.target.value)} onClick={e => e.stopPropagation()} style={{ ...inputStyle, paddingLeft: "26px", padding: "8px 10px 8px 26px", fontSize: "14px", fontWeight: "700" }} />
                   </div>
                 </div>
               )}
@@ -1952,14 +1949,13 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
         })}
       </div>
 
-      {/* Navigation */}
       <div style={{ display: "flex", gap: "10px" }}>
-        {step > 0 && (
-          <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>
-        )}
+        {step > 0 && <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>}
         <div style={{ flex: 2 }}>
           <Btn onClick={() => setStep(s => s + 1)} color={C.accent}>
-            {step < steps.length - 1 ? `Next → (${savedCharges.filter(c => UK_CHARGES[current.key]?.some(x => x.id === c.id)).length} selected)` : "Finish →"}
+            {step < steps.length - 1
+              ? `Next →${selectedOnStep > 0 ? ` (${selectedOnStep} selected)` : ""}`
+              : `Review & Save →${totalSelected > 0 ? ` (${totalSelected} total)` : ""}`}
           </Btn>
         </div>
       </div>
