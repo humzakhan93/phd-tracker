@@ -49,6 +49,26 @@ const timeStr = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digi
 const dateStr = (ts) => new Date(ts).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const minsToHHMM = (m) => `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
 
+// Calculate effective fuel cost per mile from settings
+function getCostPerMile(settings, overrideMpg, overridePpl) {
+  const method = settings.fuelMethod || "cpm";
+  if (method === "cpm") return settings.fuelCostPerMile || 0.18;
+  if (method === "mpg") {
+    const mpg = overrideMpg || settings.mpg || 0;
+    const ppl = overridePpl || settings.fuelPricePpl || 0;
+    if (!mpg || !ppl) return settings.fuelCostPerMile || 0.18;
+    const litresPer100km = 282.48 / mpg;
+    return (litresPer100km / 100) * 1.60934 * (ppl / 100);
+  }
+  if (method === "electric") {
+    const mpkwh = settings.milesPerKwh || 0;
+    const rate = settings.electricityRatePpl || 0;
+    if (!mpkwh || !rate) return 0;
+    return (rate / 100) / mpkwh;
+  }
+  return settings.fuelCostPerMile || 0.18;
+}
+
 function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
 }
@@ -268,7 +288,7 @@ function StartShiftModal({ onStart, onCancel }) {
 }
 
 // ─── End Shift Modal ──────────────────────────────────────────────────────────
-function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
+function EndShiftModal({ shift, jobs, settings, onComplete, onCancel }) {
   const [step, setStep] = useState("mileage");
   const [tripMiles, setTripMiles] = useState("");
   const [odometerEnd, setOdometerEnd] = useState("");
@@ -283,6 +303,9 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
   const [otherAmt, setOtherAmt] = useState("");
   const [otherNote, setOtherNote] = useState("");
   const [extraExpenses, setExtraExpenses] = useState([]);
+  // MPG overrides for this shift
+  const [overrideMpg, setOverrideMpg] = useState(String(settings?.mpg || ""));
+  const [overridePpl, setOverridePpl] = useState(String(settings?.fuelPricePpl || ""));
 
   const endTs = Date.now();
   const shiftMins = (endTs - shift.startTs) / 60000;
@@ -318,9 +341,12 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
   }
 
   function finish() {
+    const cpm = getCostPerMile(settings || {}, parseFloat(overrideMpg), parseFloat(overridePpl));
+    const shiftFuelCost = shiftMiles ? shiftMiles * cpm : 0;
     onComplete({
       endTs, shiftMiles: shiftMiles || 0,
       endOdometer: shift.mileageMode === "odometer" ? parseFloat(odometerEnd) || null : null,
+      shiftFuelCost,
       fuelLog: hasFuel && fuelCost ? { id: Date.now(), date: today(), cost: parseFloat(fuelCost), litres: parseFloat(fuelLitres) || 0, mileage: parseFloat(odometerEnd) || 0, notes: "End of shift fill-up" } : null,
       expenses: extraExpenses,
     });
@@ -435,6 +461,22 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
 
         {step === "summary" && (
           <>
+            {/* Fuel cost override — shown for MPG method */}
+            {settings?.fuelMethod === "mpg" && shiftMiles > 0 && (
+              <div style={{ background: C.light, borderRadius: "12px", padding: "14px", marginBottom: "14px" }}>
+                <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, marginBottom: "10px", fontFamily: FONT }}>⛽ Today's fuel figures</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <Field label="MPG today">
+                    <input style={{ ...inputStyle, fontSize: "16px", fontWeight: "700" }} type="number" step="0.1" placeholder="e.g. 48.7" value={overrideMpg} onChange={e => setOverrideMpg(e.target.value)} />
+                  </Field>
+                  <Field label="Fuel price (p/litre)">
+                    <input style={{ ...inputStyle, fontSize: "16px", fontWeight: "700" }} type="number" step="0.1" placeholder="e.g. 159.9" value={overridePpl} onChange={e => setOverridePpl(e.target.value)} />
+                  </Field>
+                </div>
+                <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Edit if today's figures differ from your defaults in Settings</div>
+              </div>
+            )}
+
             <div style={{ background: C.light, borderRadius: "12px", padding: "16px", marginBottom: "16px" }}>
               <SectionTitle>Shift Summary</SectionTitle>
               <Row label="Date" value={dateStr(shift.startTs)} />
@@ -444,13 +486,25 @@ function EndShiftModal({ shift, jobs, onComplete, onCancel }) {
               {shiftMiles > 0 && <Row label="Miles driven" value={`${shiftMiles.toFixed(0)} mi`} color={C.accent} />}
               <Row label="Jobs" value={shiftJobs.length} />
               <Row label="Gross fares" value={fmt(shiftGross)} />
-              <Row label="Net earnings" value={fmt(shiftNet)} color={C.green} bold />
+              <Row label="Net from rides" value={fmt(shiftNet)} color={C.green} />
+              {shiftMiles > 0 && (() => {
+                const cpm = getCostPerMile(settings || {}, parseFloat(overrideMpg), parseFloat(overridePpl));
+                const fuelDeduction = shiftMiles * cpm;
+                const shiftProfit = shiftNet - fuelDeduction;
+                return (
+                  <>
+                    <Row label={`Fuel cost (${shiftMiles.toFixed(0)} mi × ${(cpm * 100).toFixed(1)}p)`} value={`− ${fmt(fuelDeduction)}`} color={C.red} />
+                    <Row label="Shift profit" value={fmt(shiftProfit)} color={shiftProfit >= 0 ? C.green : C.red} bold />
+                  </>
+                );
+              })()}
             </div>
             {(hasFuel || extraExpenses.length > 0) && (
               <div style={{ background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: "12px", padding: "16px", marginBottom: "16px" }}>
-                <SectionTitle>Expenses Added</SectionTitle>
-                {hasFuel && fuelCost && <Row label="Fuel" value={`− ${fmt(parseFloat(fuelCost))}`} color={C.red} />}
+                <SectionTitle>Expenses Logged</SectionTitle>
+                {hasFuel && fuelCost && <Row label="Fuel fill-up" value={`− ${fmt(parseFloat(fuelCost))}`} color={C.red} />}
                 {extraExpenses.map((e, i) => <Row key={i} label={e.category} value={`− ${fmt(e.amount)}`} color={C.red} />)}
+                <div style={{ fontSize: "11px", color: C.sub, marginTop: "8px", fontFamily: FONT }}>These are logged as expenses for your records — separate from the fuel cost deducted above</div>
               </div>
             )}
             <Btn big onClick={finish} color={C.green}>✓ Save & End Shift</Btn>
@@ -594,8 +648,8 @@ export default function App() {
   }
 
   function handleStartShift(shiftData) { setActiveShift(shiftData); setShowStart(false); }
-  function handleEndShift({ endTs, shiftMiles, endOdometer, fuelLog, expenses: newExp }) {
-    setShifts(prev => [{ ...activeShift, endTs, shiftMiles, endOdometer }, ...prev]);
+  function handleEndShift({ endTs, shiftMiles, endOdometer, shiftFuelCost, fuelLog, expenses: newExp }) {
+    setShifts(prev => [{ ...activeShift, endTs, shiftMiles, endOdometer, shiftFuelCost }, ...prev]);
     setActiveShift(null);
     if (fuelLog) setFuelLogs(prev => [fuelLog, ...prev]);
     if (newExp?.length) setExpenses(prev => [...newExp, ...prev]);
@@ -756,7 +810,7 @@ export default function App() {
       </div>
 
       {showStart && <StartShiftModal onStart={handleStartShift} onCancel={() => setShowStart(false)} />}
-      {showEnd && activeShift && <EndShiftModal shift={activeShift} jobs={jobs} onComplete={handleEndShift} onCancel={() => setShowEnd(false)} />}
+      {showEnd && activeShift && <EndShiftModal shift={activeShift} jobs={jobs} settings={settings} onComplete={handleEndShift} onCancel={() => setShowEnd(false)} />}
     </div>
   );
 }
@@ -823,9 +877,22 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
   const opCuts = fj.reduce((s, j) => s + (j.opCut || 0), 0);
   const totalTips = fj.reduce((s, j) => s + (j.tip || 0), 0);
   const netFares = grossFares - opCuts + totalTips;
-  const fuelSpend = ff.reduce((s, f) => s + (f.cost || 0), 0);
+  const fuelFillUps = ff.reduce((s, f) => s + (f.cost || 0), 0);
   const otherExp = fe.reduce((s, e) => s + (e.amount || 0), 0);
-  const netProfit = netFares - fuelSpend - otherExp;
+
+  // Use shiftFuelCost (calculated at end of shift) for profit — more accurate than fill-up spend
+  const fs = (() => {
+    if (range === "shift") return activeShift ? [] : [];
+    if (range === "today") return shifts.filter(sh => sh.endTs && new Date(sh.endTs).toISOString().slice(0,10) === todayStr);
+    if (range === "week") { const d = new Date(); d.setDate(d.getDate() - 7); return shifts.filter(sh => sh.endTs && new Date(sh.endTs).getTime() >= d.getTime()); }
+    if (range === "month") { const d = new Date(); d.setMonth(d.getMonth() - 1); return shifts.filter(sh => sh.endTs && new Date(sh.endTs).getTime() >= d.getTime()); }
+    if (range === "taxyear") return shifts.filter(sh => sh.endTs && new Date(sh.endTs).toISOString().slice(0,10) >= TAX_YEAR_START);
+    return shifts.filter(sh => sh.endTs);
+  })();
+  const shiftFuelTotal = fs.reduce((s, sh) => s + (sh.shiftFuelCost || 0), 0);
+  // Fall back to fuel log spend if no shift fuel cost recorded
+  const fuelDeduction = shiftFuelTotal > 0 ? shiftFuelTotal : fuelFillUps;
+  const netProfit = netFares - fuelDeduction - otherExp;
   const totalMins = fj.reduce((s, j) => s + (j.minutes || 0), 0);
 
   // Hourly rate: use shift duration if viewing current shift, otherwise job minutes
@@ -935,7 +1002,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
         <StatCard label="Net Profit" value={fmt(netProfit)} color={netProfit >= 0 ? C.green : C.red} sub={`${fj.length} job${fj.length !== 1 ? "s" : ""}`} />
         <StatCard label="Gross Fares" value={fmt(grossFares)} color={C.accent} />
         <StatCard label={hourlyLabel} value={hourlyRate > 0 ? fmt(hourlyRate) : "—"} color={C.blue} sub="after op. cut" />
-        <StatCard label="Total Costs" value={fmt(fuelSpend + otherExp)} color={C.red} />
+        <StatCard label="Total Costs" value={fmt(fuelDeduction + otherExp)} color={C.red} />
       </div>
 
       {/* P&L */}
@@ -945,7 +1012,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
         <Row label="Operator cuts" value={`− ${fmt(opCuts)}`} color={C.red} />
         {totalTips > 0 && <Row label="Tips received" value={`+ ${fmt(totalTips)}`} color={C.green} />}
         <Row label="Net from rides" value={fmt(netFares)} color={C.green} bold />
-        <Row label="Fuel spend" value={`− ${fmt(fuelSpend)}`} color={C.red} />
+        <Row label={shiftFuelTotal > 0 ? "Fuel cost (from shifts)" : "Fuel spend (fill-ups)"} value={`− ${fmt(fuelDeduction)}`} color={C.red} />
         <Row label="Other expenses" value={`− ${fmt(otherExp)}`} color={C.red} />
         <Row label="Net profit" value={fmt(netProfit)} color={netProfit >= 0 ? C.green : C.red} bold />
       </div>
@@ -1622,19 +1689,90 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 function SettingsPage({ settings, setSettings }) {
+  const method = settings.fuelMethod || "cpm";
+
+  // Helper to calculate effective cost per mile
+  function calcCpm() {
+    if (method === "cpm") return settings.fuelCostPerMile || 0;
+    if (method === "mpg" && settings.mpg && settings.fuelPricePpl) {
+      const litresPer100km = 282.48 / settings.mpg;
+      return (litresPer100km / 100) * 1.60934 * (settings.fuelPricePpl / 100);
+    }
+    if (method === "electric" && settings.milesPerKwh && settings.electricityRatePpl) {
+      return (settings.electricityRatePpl / 100) / settings.milesPerKwh;
+    }
+    return 0;
+  }
+
+  const effectiveCpm = calcCpm();
+
   return (
     <div>
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <SectionTitle>Fuel & Costs</SectionTitle>
-        <Field label="Fuel cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi. Used in all profit calculations." tooltip="Divide your last fill-up cost by the miles driven since the previous fill-up.">
-          <input style={inputStyle} type="number" step="0.01" value={settings.fuelCostPerMile} onChange={e => setSettings(s => ({ ...s, fuelCostPerMile: parseFloat(e.target.value) || 0 }))} />
-        </Field>
-        <Field label="Card machine fee %" hint="Default fee deducted on card payments" tooltip="Your card reader's standard transaction fee. Used as the default when logging a card payment job.">
+        <SectionTitle>Fuel Tracking Method</SectionTitle>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "12px", fontFamily: FONT }}>
+          Choose how the app calculates fuel cost at end of each shift. This is automatically deducted from your shift profit.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+          {[
+            { v: "cpm", icon: "📐", label: "Cost per mile", desc: "Enter a fixed pence-per-mile figure you've worked out yourself" },
+            { v: "mpg", icon: "⛽", label: "MPG calculator", desc: "Enter your MPG and fuel price — app calculates exact cost from shift miles" },
+            { v: "electric", icon: "⚡", label: "Electric vehicle", desc: "Enter miles per kWh and electricity rate for accurate EV cost" },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => setSettings(s => ({ ...s, fuelMethod: opt.v }))} style={{
+              padding: "14px", textAlign: "left", cursor: "pointer",
+              background: method === opt.v ? C.blueBg : C.light,
+              border: `2px solid ${method === opt.v ? C.blue : C.border}`,
+              borderRadius: "12px", fontFamily: FONT,
+            }}>
+              <div style={{ fontSize: "14px", fontWeight: "700", color: method === opt.v ? C.blue : C.text, marginBottom: "3px" }}>{opt.icon} {opt.label}</div>
+              <div style={{ fontSize: "12px", color: C.sub }}>{opt.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {method === "cpm" && (
+          <Field label="Cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi" tooltip="Divide your last fill-up cost by miles driven since previous fill-up. e.g. £65 ÷ 380 miles = £0.17/mi">
+            <input style={inputStyle} type="number" step="0.001" placeholder="e.g. 0.18" value={settings.fuelCostPerMile || ""} onChange={e => setSettings(s => ({ ...s, fuelCostPerMile: parseFloat(e.target.value) || 0 }))} />
+          </Field>
+        )}
+
+        {method === "mpg" && (
+          <>
+            <Field label="Your MPG" hint="From your car's trip computer" tooltip="Miles per gallon shown on your dashboard. You can override this per shift if today's figure differs.">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 48.7" value={settings.mpg || ""} onChange={e => setSettings(s => ({ ...s, mpg: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+            <Field label="Fuel price (pence per litre)" hint="From your last fill-up" tooltip="The price per litre you paid most recently. Update this whenever you fill up at a different price.">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 159.9" value={settings.fuelPricePpl || ""} onChange={e => setSettings(s => ({ ...s, fuelPricePpl: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+          </>
+        )}
+
+        {method === "electric" && (
+          <>
+            <Field label="Miles per kWh" hint="From your car's trip computer" tooltip="Your EV's efficiency. Typically 3–5 miles per kWh.">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 3.8" value={settings.milesPerKwh || ""} onChange={e => setSettings(s => ({ ...s, milesPerKwh: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+            <Field label="Electricity rate (pence per kWh)" hint="Home charging ≈ 7–30p/kWh" tooltip="The rate you pay to charge. Home charging is cheapest. Public rapid chargers can be 50–80p/kWh.">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 24.5" value={settings.electricityRatePpl || ""} onChange={e => setSettings(s => ({ ...s, electricityRatePpl: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+          </>
+        )}
+
+        {effectiveCpm > 0 && (
+          <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px", padding: "12px", marginTop: "8px" }}>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: C.green, marginBottom: "2px", fontFamily: FONT }}>Effective cost per mile</div>
+            <div style={{ fontSize: "22px", fontWeight: "800", color: C.green, fontFamily: FONT }}>{(effectiveCpm * 100).toFixed(1)}p / mile</div>
+            <div style={{ fontSize: "11px", color: C.sub, marginTop: "4px", fontFamily: FONT }}>This is automatically deducted from your shift profit based on miles driven</div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Card Machine</SectionTitle>
+        <Field label="Card machine fee %" hint="Default fee deducted on card payments" tooltip="Your card reader's standard transaction fee.">
           <input style={inputStyle} type="number" step="0.01" placeholder="e.g. 1.69" value={settings.cardFeePct || ""} onChange={e => setSettings(s => ({ ...s, cardFeePct: parseFloat(e.target.value) || 0 }))} />
         </Field>
-      </div>
-      <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "12px", padding: "14px", fontSize: "13px", color: C.blue, fontFamily: FONT, lineHeight: "1.7" }}>
-        More settings coming soon — vehicle type, MPG tracking, licensing authority and notification preferences.
       </div>
     </div>
   );
