@@ -17,17 +17,25 @@ const HMRC_RATE_2 = 0.25;
 const HMRC_THRESHOLD = 10000;
 const TAX_YEAR_START = "2025-04-06";
 
+// Grouped preset charges — used in End Shift, Fare Check, and Costs tab
 const PRESET_CHARGES = [
-  { id: "luton_drop", label: "Luton Airport Drop-off", amount: 7.00 },
-  { id: "luton_pickup", label: "Luton Airport Pick-up", amount: 7.00 },
-  { id: "heathrow", label: "Heathrow Drop-off", amount: 7.00 },
-  { id: "gatwick", label: "Gatwick Drop-off", amount: 10.00 },
-  { id: "stansted", label: "Stansted Drop-off", amount: 10.00 },
-  { id: "london_city", label: "London City Drop-off", amount: 8.00 },
-  { id: "ulez", label: "ULEZ Charge", amount: 12.50 },
-  { id: "congestion", label: "Congestion Charge", amount: 15.00 },
-  { id: "dart", label: "Dart Charge", amount: 3.50 },
-  { id: "m6", label: "M6 Toll (full route)", amount: 11.60 },
+  // ── Drop-offs ──
+  { id: "heathrow_drop", label: "Heathrow Drop-off", amount: 7.00, group: "dropoff", note: "Paid via ANPR by midnight next day" },
+  { id: "gatwick_drop", label: "Gatwick Drop-off", amount: 10.00, group: "dropoff" },
+  { id: "stansted_drop", label: "Stansted Express Set Down", amount: 10.00, group: "dropoff", note: "Up to 15 mins" },
+  { id: "luton_drop", label: "Luton Drop-off", amount: 7.00, group: "dropoff" },
+  { id: "london_city_drop", label: "London City Drop-off", amount: 8.00, group: "dropoff" },
+  // ── Pick-ups (terminal parking) ──
+  { id: "heathrow_pickup", label: "Heathrow Pick-up Parking", amount: 8.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
+  { id: "gatwick_pickup", label: "Gatwick Pick-up Parking", amount: 8.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
+  { id: "stansted_pickup", label: "Stansted Pick-up Parking", amount: 13.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
+  { id: "luton_pickup", label: "Luton Pick-up Parking", amount: 15.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
+  { id: "london_city_pickup", label: "London City Pick-up Parking", amount: 10.00, group: "pickup", note: "Up to 20 mins, editable if longer" },
+  // ── Road charges ──
+  { id: "ulez", label: "ULEZ Charge", amount: 12.50, group: "road", note: "Electric vehicles exempt" },
+  { id: "congestion", label: "Congestion Charge", amount: 18.00, group: "road", note: "EVs pay £13.50 with Auto Pay" },
+  { id: "dart", label: "Dart Charge", amount: 3.50, group: "road" },
+  { id: "m6", label: "M6 Toll (full route)", amount: 11.60, group: "road" },
 ];
 
 // ─── Draft autosave keys ──────────────────────────────────────────────────────
@@ -1691,12 +1699,18 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
   const [fuelForm, setFuelForm] = useState({ date: today(), cost: "", litres: "", mileage: "", notes: "" });
   const [expAdded, setExpAdded] = useState(false);
   const [fuelAdded, setFuelAdded] = useState(false);
+  const [quickAdded, setQuickAdded] = useState(null);
 
   function addExpense() {
     if (!expForm.amount) return;
     setExpenses(prev => [{ id: Date.now(), ...expForm, amount: parseFloat(expForm.amount) }, ...prev]);
     setExpForm(f => ({ ...f, amount: "", notes: "" }));
     setExpAdded(true); setTimeout(() => setExpAdded(false), 2000);
+  }
+
+  function quickAddCharge(charge) {
+    setExpenses(prev => [{ id: Date.now(), date: today(), category: charge.label, amount: charge.amount, notes: charge.note || "" }, ...prev]);
+    setQuickAdded(charge.id); setTimeout(() => setQuickAdded(null), 2000);
   }
   function addFuel() {
     if (!fuelForm.cost) return;
@@ -1730,6 +1744,68 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
       </div>
       {subTab === "expense" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
+
+          {/* Quick Add — Airport & Road Charges */}
+          <div style={{ marginBottom: "18px" }}>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px", fontFamily: FONT }}>Quick Add — Airport & Road Charges</div>
+
+            {/* Drop-offs */}
+            <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>✈ Drop-offs</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+              {PRESET_CHARGES.filter(c => c.group === "dropoff").map(c => (
+                <button key={c.id} onClick={() => quickAddCharge(c)} style={{
+                  padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
+                  background: quickAdded === c.id ? C.greenBg : C.light,
+                  border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
+                  color: quickAdded === c.id ? C.green : C.text,
+                  fontSize: "12px", fontWeight: "600", fontFamily: FONT,
+                  display: "flex", alignItems: "center", gap: "6px",
+                }}>
+                  {quickAdded === c.id ? "✓" : ""}{c.label.replace(" Drop-off", "").replace(" Express Set Down", "")} <span style={{ color: C.sub, fontWeight: "500" }}>£{c.amount.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Pick-ups */}
+            <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🅿 Pick-up Parking</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+              {PRESET_CHARGES.filter(c => c.group === "pickup").map(c => (
+                <button key={c.id} onClick={() => quickAddCharge(c)} style={{
+                  padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
+                  background: quickAdded === c.id ? C.greenBg : C.light,
+                  border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
+                  color: quickAdded === c.id ? C.green : C.text,
+                  fontSize: "12px", fontWeight: "600", fontFamily: FONT,
+                  display: "flex", alignItems: "center", gap: "6px",
+                }}>
+                  {quickAdded === c.id ? "✓" : ""}{c.label.replace(" Pick-up Parking", "").replace(" Airport", "")} <span style={{ color: C.sub, fontWeight: "500" }}>£{c.amount.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Road charges */}
+            <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🛣 Road Charges</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "4px" }}>
+              {PRESET_CHARGES.filter(c => c.group === "road").map(c => (
+                <button key={c.id} onClick={() => quickAddCharge(c)} style={{
+                  padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
+                  background: quickAdded === c.id ? C.greenBg : C.light,
+                  border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
+                  color: quickAdded === c.id ? C.green : C.text,
+                  fontSize: "12px", fontWeight: "600", fontFamily: FONT,
+                  display: "flex", alignItems: "center", gap: "6px",
+                }}>
+                  {quickAdded === c.id ? "✓" : ""}{c.label} <span style={{ color: C.sub, fontWeight: "500" }}>£{c.amount.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: "11px", color: C.muted, marginTop: "8px", fontFamily: FONT }}>
+              Tap any charge to add it instantly. All amounts are logged to today's date and shown in History.
+            </div>
+          </div>
+
+          <div style={{ height: "1px", background: C.border, marginBottom: "16px" }} />
+
           <Input label="Date" type="date" value={expForm.date} onChange={e => setExpForm(f => ({ ...f, date: e.target.value }))} />
           <Select label="Category" options={EXPENSE_CATS} value={expForm.category} onChange={e => setExpForm(f => ({ ...f, category: e.target.value }))} />
           <Input label="Amount (£)" type="number" placeholder="e.g. 12.00" value={expForm.amount} onChange={e => setExpForm(f => ({ ...f, amount: e.target.value }))} />
