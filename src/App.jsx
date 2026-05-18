@@ -779,11 +779,18 @@ export default function App() {
       {burgerPage && (
         <div style={{ position: "fixed", inset: 0, background: C.bg, zIndex: 350, overflowY: "auto", paddingBottom: "40px" }}>
           {/* Sub-page header */}
-          <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-            <button onClick={() => setBurgerPage(null)} style={{ background: "none", border: "none", color: C.accent, fontSize: "16px", fontWeight: "700", cursor: "pointer", fontFamily: FONT, padding: "0" }}>‹ Back</button>
-            <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, fontFamily: FONT }}>
+          <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            {/* Burger icon — opens menu from within sub-page */}
+            <button onClick={() => setShowBurger(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", display: "flex", flexDirection: "column", gap: "5px", justifyContent: "center" }}>
+              <div style={{ width: "20px", height: "2px", background: C.text, borderRadius: "2px" }} />
+              <div style={{ width: "20px", height: "2px", background: C.text, borderRadius: "2px" }} />
+              <div style={{ width: "20px", height: "2px", background: C.text, borderRadius: "2px" }} />
+            </button>
+            <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, fontFamily: FONT, flex: 1 }}>
               {burgerPage === "profile" ? "My Profile" : burgerPage === "operators" ? "My Operators" : burgerPage === "settings" ? "Settings" : "Documents"}
             </div>
+            {/* Close — goes back to app */}
+            <button onClick={() => setBurgerPage(null)} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
           <div style={{ padding: "16px" }}>
             {burgerPage === "operators" && <OperatorsManager settings={settings} setSettings={setSettings} />}
