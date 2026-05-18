@@ -1203,6 +1203,7 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
   const [jobForm, setJobForm] = useState(() => load(DRAFT_JOB_KEY, defaultJobForm));
   const [dayForm, setDayForm] = useState(() => load(DRAFT_DAY_KEY, defaultDayForm));
   const [added, setAdded] = useState(false);
+  const [editingJob, setEditingJob] = useState(null);
 
   useEffect(() => { save(DRAFT_JOB_KEY, jobForm); }, [jobForm]);
   useEffect(() => { save(DRAFT_DAY_KEY, dayForm); }, [dayForm]);
@@ -1415,7 +1416,10 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
                 {j.paymentMethod && j.paymentMethod !== "Via Operator" && <span style={{ fontSize: "11px", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBorder}`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>{PAYMENT_ICONS[j.paymentMethod]} {j.paymentMethod}</span>}
               </div>
             </div>
-            <button onClick={() => setJobs(prev => prev.filter(x => x.id !== j.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px", paddingLeft: "10px" }}>✕</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end", paddingLeft: "10px" }}>
+              <button onClick={() => setEditingJob(j)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", color: C.blue, cursor: "pointer", fontSize: "12px", fontWeight: "600", padding: "4px 10px", fontFamily: FONT }}>Edit</button>
+              <button onClick={() => setJobs(prev => prev.filter(x => x.id !== j.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+            </div>
           </div>
         ))
       }
@@ -1430,6 +1434,15 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
             setShowQuickLog(false);
             if (saved) { setQuickAdded(true); setTimeout(() => setQuickAdded(false), 3000); }
           }}
+        />
+      )}
+
+      {editingJob && (
+        <EditJobModal
+          job={editingJob}
+          settings={settings}
+          onSave={updated => { setJobs(prev => prev.map(j => j.id === updated.id ? updated : j)); setEditingJob(null); }}
+          onClose={() => setEditingJob(null)}
         />
       )}
     </div>
@@ -1704,6 +1717,8 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
   const [pendingAmt, setPendingAmt] = useState("");
   const [showCustomCharge, setShowCustomCharge] = useState(false);
   const [customCharge, setCustomCharge] = useState({ label: "", amount: "" });
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [editingFuel, setEditingFuel] = useState(null);
 
   const savedCustomCharges = settings.customCharges || [];
 
@@ -1923,7 +1938,10 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
                   {e.notes && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{e.notes}</div>}
                   <div style={{ color: C.red, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>− {fmt(e.amount)}</div>
                 </div>
-                <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                  <button onClick={() => setEditingExpense(e)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", color: C.blue, cursor: "pointer", fontSize: "11px", fontWeight: "600", padding: "3px 8px", fontFamily: FONT }}>Edit</button>
+                  <button onClick={() => setExpenses(prev => prev.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "16px" }}>✕</button>
+                </div>
               </div>
             ))
           }
@@ -1937,12 +1955,207 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
                   {f.litres > 0 && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{f.litres}L{f.mileage > 0 ? ` · ${f.mileage.toLocaleString()} mi` : ""}</div>}
                   <div style={{ color: C.red, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>− {fmt(f.cost)}</div>
                 </div>
-                <button onClick={() => setFuelLogs(prev => prev.filter(x => x.id !== f.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                  <button onClick={() => setEditingFuel(f)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", color: C.blue, cursor: "pointer", fontSize: "11px", fontWeight: "600", padding: "3px 8px", fontFamily: FONT }}>Edit</button>
+                  <button onClick={() => setFuelLogs(prev => prev.filter(x => x.id !== f.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "16px" }}>✕</button>
+                </div>
               </div>
             ))
           }
         </>
       )}
+
+      {editingExpense && (
+        <EditExpenseModal
+          expense={editingExpense}
+          onSave={updated => { setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e)); setEditingExpense(null); }}
+          onClose={() => setEditingExpense(null)}
+        />
+      )}
+      {editingFuel && (
+        <EditFuelModal
+          fuelLog={editingFuel}
+          onSave={updated => { setFuelLogs(prev => prev.map(f => f.id === updated.id ? updated : f)); setEditingFuel(null); }}
+          onClose={() => setEditingFuel(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Edit Modals ──────────────────────────────────────────────────────────────
+
+function EditJobModal({ job, settings, onSave, onClose }) {
+  const operators = settings.operators || [];
+  const [form, setForm] = useState({
+    date: job.date || today(),
+    operator: job.operator || "",
+    fare: String(job.fare || ""),
+    commissionModel: job.opCut > 0 ? "pct" : "net",
+    commissionPct: job.fare > 0 && job.opCut > 0 ? String(((job.opCut / job.fare) * 100).toFixed(1)) : "",
+    jobMiles: String(job.jobMiles || ""),
+    minutes: String(job.minutes || ""),
+    paymentMethod: job.paymentMethod || "Via Operator",
+    tip: String(job.tip || ""),
+    notes: job.notes || "",
+  });
+
+  function save() {
+    const fare = parseFloat(form.fare) || 0;
+    const tip = parseFloat(form.tip) || 0;
+    const jobMiles = parseFloat(form.jobMiles) || 0;
+    const selectedOp = operators.find(o => o.name === form.operator);
+    let netFare = fare, opCut = 0;
+    if (selectedOp) {
+      if (selectedOp.commissionModel === "pct") { opCut = fare * (selectedOp.commissionPct / 100); netFare = fare - opCut; }
+      else if (selectedOp.commissionModel === "fixed_then_pct") { const afterFixed = fare - (selectedOp.fixedFee || 0); const comm = afterFixed * (selectedOp.commissionPct / 100); opCut = (selectedOp.fixedFee || 0) + comm; netFare = afterFixed - comm; }
+    } else if (form.commissionModel === "pct" && form.commissionPct) {
+      opCut = fare * (parseFloat(form.commissionPct) / 100); netFare = fare - opCut;
+    }
+    const cardFeePct = form.paymentMethod === "Card (my machine)" ? (settings.cardFeePct || 1.69) : 0;
+    const cardFeeAmt = netFare * (cardFeePct / 100);
+    const netEarnings = netFare + tip - cardFeeAmt;
+    onSave({ ...job, date: form.date, operator: form.operator, fare, netFare, opCut, jobMiles, minutes: parseFloat(form.minutes) || 0, tip, paymentMethod: form.paymentMethod, notes: form.notes, netEarnings, cardFeeAmt });
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, overflowY: "auto" }}>
+      <div style={{ background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+          <div style={{ fontSize: "18px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Edit Job</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer" }}>✕</button>
+        </div>
+        <Input label="Date" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+        <div style={{ marginBottom: "14px" }}>
+          <FieldLabel label="Operator" />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {operators.map(op => (
+              <button key={op.name} onClick={() => setForm(f => ({ ...f, operator: op.name }))} style={{ padding: "7px 14px", borderRadius: "20px", cursor: "pointer", background: form.operator === op.name ? op.color + "22" : C.light, border: `2px solid ${form.operator === op.name ? op.color : C.border}`, color: form.operator === op.name ? op.color : C.sub, fontSize: "13px", fontWeight: "700", fontFamily: FONT }}>{op.name}</button>
+            ))}
+          </div>
+        </div>
+        <Input label="Fare (£)" type="number" placeholder="e.g. 22.00" value={form.fare} onChange={e => setForm(f => ({ ...f, fare: e.target.value }))} />
+        {!operators.find(o => o.name === form.operator) && (
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Commission" />
+            <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+              {[{ v: "net", label: "Net — no commission" }, { v: "pct", label: "Commission %" }].map(opt => (
+                <button key={opt.v} onClick={() => setForm(f => ({ ...f, commissionModel: opt.v }))} style={{ flex: 1, padding: "9px", background: form.commissionModel === opt.v ? C.greenBg : C.light, border: `2px solid ${form.commissionModel === opt.v ? C.green : C.border}`, borderRadius: "10px", color: form.commissionModel === opt.v ? C.green : C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{opt.label}</button>
+              ))}
+            </div>
+            {form.commissionModel === "pct" && <input style={inputStyle} type="number" placeholder="Commission % (e.g. 25)" value={form.commissionPct} onChange={e => setForm(f => ({ ...f, commissionPct: e.target.value }))} />}
+          </div>
+        )}
+        <Input label="Job miles" type="number" placeholder="e.g. 15" value={form.jobMiles} onChange={e => setForm(f => ({ ...f, jobMiles: e.target.value }))} />
+        <Input label="Total time (minutes)" type="number" placeholder="e.g. 40" value={form.minutes} onChange={e => setForm(f => ({ ...f, minutes: e.target.value }))} />
+        <div style={{ marginBottom: "14px" }}>
+          <FieldLabel label="Payment method" />
+          <div style={{ display: "flex", gap: "6px" }}>
+            {PAYMENT_METHODS.map(m => (
+              <button key={m} onClick={() => setForm(f => ({ ...f, paymentMethod: m }))} style={{ flex: 1, padding: "9px 4px", background: form.paymentMethod === m ? C.blueBg : C.light, border: `2px solid ${form.paymentMethod === m ? C.blue : C.border}`, borderRadius: "10px", color: form.paymentMethod === m ? C.blue : C.sub, fontSize: "10px", fontWeight: "600", fontFamily: FONT, cursor: "pointer", textAlign: "center" }}>{PAYMENT_ICONS[m]}<br />{m}</button>
+            ))}
+          </div>
+        </div>
+        <Input label="Tip (£) — optional" type="number" placeholder="e.g. 3.00" value={form.tip} onChange={e => setForm(f => ({ ...f, tip: e.target.value }))} />
+        <Input label="Notes (optional)" type="text" placeholder="e.g. Luton airport run" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+          <div style={{ flex: 1 }}><Btn onClick={save} disabled={!form.fare}>Save Changes</Btn></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditExpenseModal({ expense, onSave, onClose }) {
+  const [form, setForm] = useState({ date: expense.date || today(), category: expense.category || EXPENSE_CATS[0], amount: String(expense.amount || ""), notes: expense.notes || "" });
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, overflowY: "auto" }}>
+      <div style={{ background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+          <div style={{ fontSize: "18px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Edit Expense</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer" }}>✕</button>
+        </div>
+        <Input label="Date" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+        <Select label="Category" options={EXPENSE_CATS} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
+        <Input label="Amount (£)" type="number" placeholder="e.g. 12.00" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+        <Input label="Notes (optional)" type="text" placeholder="e.g. hand car wash Luton" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+          <div style={{ flex: 1 }}><Btn onClick={() => onSave({ ...expense, ...form, amount: parseFloat(form.amount) })} disabled={!form.amount}>Save Changes</Btn></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditFuelModal({ fuelLog, onSave, onClose }) {
+  const [form, setForm] = useState({ date: fuelLog.date || today(), cost: String(fuelLog.cost || ""), litres: String(fuelLog.litres || ""), mileage: String(fuelLog.mileage || ""), notes: fuelLog.notes || "" });
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, overflowY: "auto" }}>
+      <div style={{ background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+          <div style={{ fontSize: "18px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Edit Fuel Fill-Up</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer" }}>✕</button>
+        </div>
+        <Input label="Date" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+        <Input label="Total cost (£)" type="number" placeholder="e.g. 65.00" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} />
+        <Input label="Litres (optional)" type="number" placeholder="e.g. 45" value={form.litres} onChange={e => setForm(f => ({ ...f, litres: e.target.value }))} />
+        <Input label="Odometer reading (optional)" type="number" placeholder="e.g. 48234" value={form.mileage} onChange={e => setForm(f => ({ ...f, mileage: e.target.value }))} />
+        <Input label="Notes" type="text" placeholder="e.g. Shell M1" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+          <div style={{ flex: 1 }}><Btn onClick={() => onSave({ ...fuelLog, ...form, cost: parseFloat(form.cost), litres: parseFloat(form.litres) || 0, mileage: parseFloat(form.mileage) || 0 })} disabled={!form.cost}>Save Changes</Btn></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditShiftModal({ shift, onSave, onClose }) {
+  const fmtForInput = (ts) => ts ? new Date(ts).toISOString().slice(0, 16) : "";
+  const [startDt, setStartDt] = useState(fmtForInput(shift.startTs));
+  const [endDt, setEndDt] = useState(fmtForInput(shift.endTs));
+  const [miles, setMiles] = useState(String(shift.shiftMiles || ""));
+  const [mode, setMode] = useState(shift.mileageMode || "trip");
+
+  function save() {
+    onSave({
+      ...shift,
+      startTs: startDt ? new Date(startDt).getTime() : shift.startTs,
+      endTs: endDt ? new Date(endDt).getTime() : shift.endTs,
+      shiftMiles: parseFloat(miles) || 0,
+      mileageMode: mode,
+    });
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, overflowY: "auto" }}>
+      <div style={{ background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+          <div style={{ fontSize: "18px", fontWeight: "800", color: C.text, fontFamily: FONT }}>Edit Shift</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer" }}>✕</button>
+        </div>
+        <Field label="Shift start">
+          <input style={inputStyle} type="datetime-local" value={startDt} onChange={e => setStartDt(e.target.value)} />
+        </Field>
+        <Field label="Shift end">
+          <input style={inputStyle} type="datetime-local" value={endDt} onChange={e => setEndDt(e.target.value)} />
+        </Field>
+        <Input label="Miles driven" type="number" placeholder="e.g. 87" value={miles} onChange={e => setMiles(e.target.value)} />
+        <div style={{ marginBottom: "14px" }}>
+          <FieldLabel label="Mileage method" />
+          <div style={{ display: "flex", gap: "8px" }}>
+            {[{ v: "trip", label: "Trip Meter" }, { v: "odometer", label: "Odometer" }, { v: "skip", label: "Not tracked" }].map(opt => (
+              <button key={opt.v} onClick={() => setMode(opt.v)} style={{ flex: 1, padding: "9px 4px", background: mode === opt.v ? C.blueBg : C.light, border: `2px solid ${mode === opt.v ? C.blue : C.border}`, borderRadius: "10px", color: mode === opt.v ? C.blue : C.sub, fontSize: "11px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+          <div style={{ flex: 1 }}><Btn onClick={save}>Save Changes</Btn></div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1956,6 +2169,7 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
   const hmrc = totalBusiness <= HMRC_THRESHOLD ? totalBusiness * HMRC_RATE_1 : HMRC_THRESHOLD * HMRC_RATE_1 + (totalBusiness - HMRC_THRESHOLD) * HMRC_RATE_2;
   const remaining10k = Math.max(0, HMRC_THRESHOLD - totalBusiness);
   const sorted = [...fuelLogs].filter(f => f.mileage > 0).sort((a, b) => a.mileage - b.mileage);
+  const [editingShift, setEditingShift] = useState(null);
   let mpg = null;
   if (sorted.length >= 2) {
     const miles = sorted[sorted.length - 1].mileage - sorted[0].mileage;
@@ -2000,6 +2214,7 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
                 </div>
               </div>
               <button onClick={() => setShifts(prev => prev.filter(x => x.id !== sh.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px" }}>✕</button>
+              <button onClick={() => setEditingShift(sh)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", color: C.blue, cursor: "pointer", fontSize: "11px", fontWeight: "600", padding: "3px 8px", fontFamily: FONT }}>Edit</button>
             </div>
           ))
         }
@@ -2017,6 +2232,14 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
           Mileage allowance is claimed <span style={{ color: C.green, fontWeight: "600" }}>instead of</span> actual fuel costs — not in addition. Most drivers find the allowance more beneficial. Always consult your accountant.
         </div>
       </div>
+
+      {editingShift && (
+        <EditShiftModal
+          shift={editingShift}
+          onSave={updated => { setShifts(prev => prev.map(s => s.id === updated.id ? updated : s)); setEditingShift(null); }}
+          onClose={() => setEditingShift(null)}
+        />
+      )}
     </div>
   );
 }
