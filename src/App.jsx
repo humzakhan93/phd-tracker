@@ -919,9 +919,12 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
 
   const [q, setQ] = useState(() => load(QUICK_LOG_KEY, blankQuick));
   const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
+  const [scanResult, setScanResult] = useState(() => load(QUICK_LOG_KEY + "_scan", null));
 
   useEffect(() => { save(QUICK_LOG_KEY, q); }, [q]);
+  useEffect(() => { save(QUICK_LOG_KEY + "_scan", scanResult); }, [scanResult]);
+
+  function clearScan() { setScanResult(null); clearDraft(QUICK_LOG_KEY + "_scan"); }
 
   const selectedOp = operators.find(o => o.name === q.operator);
 
@@ -995,10 +998,11 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
       notes: q.notes, shiftId: activeShift?.id || null, type: "quick",
     }, ...prev]);
     clearDraft(QUICK_LOG_KEY);
+    clearDraft(QUICK_LOG_KEY + "_scan");
     onClose(true);
   }
 
-  function resetAndClose() { clearDraft(QUICK_LOG_KEY); onClose(false); }
+  function resetAndClose() { clearDraft(QUICK_LOG_KEY); clearDraft(QUICK_LOG_KEY + "_scan"); setScanResult(null); onClose(false); }
 
   const bigInput = { ...inputStyle, fontSize: "28px", fontWeight: "800", textAlign: "center", padding: "16px", borderRadius: "14px" };
 
@@ -1317,7 +1321,7 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <SectionTitle>Log a Single Job</SectionTitle>
-            {hasDraftJob && <button onClick={() => { clearDraft(DRAFT_JOB_KEY); setJobForm(defaultJobForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT }}>Clear draft</button>}
+            <button onClick={() => { clearDraft(DRAFT_JOB_KEY); setJobForm(defaultJobForm); }} style={{ background: C.light, border: `1px solid ${C.border}`, color: C.sub, fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: FONT, borderRadius: "8px", padding: "4px 10px" }}>Clear form</button>
           </div>
           {hasDraftJob && <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>📝 Draft restored</div>}
 
@@ -1366,7 +1370,7 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <SectionTitle>Log Daily Total</SectionTitle>
-            {hasDraftDay && <button onClick={() => { clearDraft(DRAFT_DAY_KEY); setDayForm(defaultDayForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT }}>Clear draft</button>}
+            <button onClick={() => { clearDraft(DRAFT_DAY_KEY); setDayForm(defaultDayForm); }} style={{ background: C.light, border: `1px solid ${C.border}`, color: C.sub, fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: FONT, borderRadius: "8px", padding: "4px 10px" }}>Clear form</button>
           </div>
           {hasDraftDay && <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>📝 Draft restored</div>}
           <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "14px", fontSize: "13px", color: C.blue, fontFamily: FONT }}>Log total earnings for a full day with one operator.</div>
