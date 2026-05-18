@@ -9,8 +9,8 @@ const PAYMENT_ICONS = { "Via Operator": "🏢", "Cash": "💵", "Card (my machin
 
 // Quick-add operator presets for new users
 const OPERATOR_PRESETS = [
-  { name: "Uber", color: "#16A34A", commissionModel: "net", commissionPct: 0, hasConfigFee: false, defaultPayment: "Via Operator", notes: "Uber pays net — fare shown is what you keep" },
-  { name: "Bolt", color: "#00C853", commissionModel: "net", commissionPct: 0, hasConfigFee: false, defaultPayment: "Via Operator", notes: "Bolt pays net — fare shown is what you keep" },
+  { name: "Uber", color: "#16A34A", commissionModel: "net", commissionPct: 0, hasConfigFee: false, hasSeparateSurcharge: true, defaultPayment: "Via Operator", notes: "Uber pays net — fare shown is what you keep. Airport surcharges paid separately to wallet." },
+  { name: "Bolt", color: "#00C853", commissionModel: "net", commissionPct: 0, hasConfigFee: false, hasSeparateSurcharge: true, defaultPayment: "Via Operator", notes: "Bolt pays net — fare shown is what you keep. Airport surcharges paid separately to wallet." },
 ];
 const HMRC_RATE_1 = 0.45;
 const HMRC_RATE_2 = 0.25;
@@ -1229,12 +1229,14 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
               <input style={bigInput} type="number" placeholder="0.00" value={q.fare} onChange={e => setQ(q => ({ ...q, fare: e.target.value }))} />
             </div>
 
-            {/* Operator surcharge — e.g. Uber airport surcharge */}
-            <div style={{ marginBottom: "14px" }}>
-              <FieldLabel label="Operator surcharge reimbursed (£) — optional" tooltip="If your operator adds an airport or other surcharge to your wallet separately, enter it here. Adds to your income. Remember to also log the charge as an expense." />
-              <input style={{ ...inputStyle, borderColor: q.surcharge ? C.green : C.border }} type="number" placeholder="e.g. 7.00" value={q.surcharge} onChange={e => setQ(q => ({ ...q, surcharge: e.target.value }))} />
-              {q.surcharge && <div style={{ fontSize: "11px", color: C.green, marginTop: "4px", fontFamily: FONT, fontWeight: "600" }}>✓ +{fmt(parseFloat(q.surcharge))} added to income</div>}
-            </div>
+            {/* Operator surcharge — only for operators with hasSeparateSurcharge */}
+            {selectedOp?.hasSeparateSurcharge && (
+              <div style={{ marginBottom: "14px" }}>
+                <FieldLabel label="Airport/surcharge added to wallet (£) — optional" tooltip="This operator adds airport surcharges to your wallet separately. Enter the amount here to add it to your income." />
+                <input style={{ ...inputStyle, borderColor: q.surcharge ? C.green : C.border }} type="number" placeholder="e.g. 7.00" value={q.surcharge} onChange={e => setQ(q => ({ ...q, surcharge: e.target.value }))} />
+                {q.surcharge && <div style={{ fontSize: "11px", color: C.green, marginTop: "4px", fontFamily: FONT, fontWeight: "600" }}>✓ +{fmt(parseFloat(q.surcharge))} added to income</div>}
+              </div>
+            )}
 
             {/* Config fee */}
             {selectedOp?.hasConfigFee && (
@@ -1480,22 +1482,24 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
           <OpSelector value={jobForm.operator} onChange={op => setJobForm(f => ({ ...f, operator: op.name, paymentMethod: op.defaultPayment || "Via Operator" }))} />
           <Input label="Fare (£)" tooltip="The amount shown for this job." type="number" placeholder="e.g. 22.00" value={jobForm.fare} onChange={e => setJobForm(f => ({ ...f, fare: e.target.value }))} />
 
-          {/* Operator surcharge — e.g. Uber airport surcharge paid to wallet */}
-          <div style={{ marginBottom: "14px" }}>
-            <FieldLabel label="Operator surcharge reimbursed (£) — optional" tooltip="Some operators (e.g. Uber) add airport or other surcharges to your wallet separately from the fare. Enter that amount here — it will be added to your income for this job. You should also log the corresponding charge as an expense in the Costs tab for a complete HMRC record." />
-            <input
-              style={{ ...inputStyle, borderColor: jobForm.surcharge ? C.green : C.border }}
-              type="number"
-              placeholder="e.g. 7.00 (Luton surcharge from Uber)"
-              value={jobForm.surcharge}
-              onChange={e => setJobForm(f => ({ ...f, surcharge: e.target.value }))}
-            />
-            {jobForm.surcharge && (
-              <div style={{ fontSize: "12px", color: C.green, marginTop: "6px", fontFamily: FONT, fontWeight: "600" }}>
-                ✓ +{fmt(parseFloat(jobForm.surcharge))} added to income · Remember to also log the airport charge as an expense
-              </div>
-            )}
-          </div>
+          {/* Operator surcharge — only shown for operators that pay surcharges separately */}
+          {selectedOp?.hasSeparateSurcharge && (
+            <div style={{ marginBottom: "14px" }}>
+              <FieldLabel label="Airport/surcharge added to wallet (£) — optional" tooltip="Uber and some operators add airport surcharges to your wallet separately from the fare. Enter that amount here — it will be added to your income. Also log the charge as an expense in the Costs tab for your HMRC records." />
+              <input
+                style={{ ...inputStyle, borderColor: jobForm.surcharge ? C.green : C.border }}
+                type="number"
+                placeholder="e.g. 7.00 (Luton surcharge)"
+                value={jobForm.surcharge}
+                onChange={e => setJobForm(f => ({ ...f, surcharge: e.target.value }))}
+              />
+              {jobForm.surcharge && (
+                <div style={{ fontSize: "12px", color: C.green, marginTop: "6px", fontFamily: FONT, fontWeight: "600" }}>
+                  ✓ +{fmt(parseFloat(jobForm.surcharge))} added to income · Also log the airport charge as an expense
+                </div>
+              )}
+            </div>
+          )}
 
           {selectedOp ? (
             <>
@@ -1506,8 +1510,7 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
             </>
           ) : !jobForm.operator && <FareTypeToggle value={jobForm.isNet} onChange={v => setJobForm(f => ({ ...f, isNet: v }))} commPct={jobForm.commissionPct} onCommChange={v => setJobForm(f => ({ ...f, commissionPct: v }))} />}
 
-          <Input label="Job miles (pickup to dropoff)" tooltip="Distance of the actual trip." type="number" placeholder="e.g. 15" value={jobForm.jobMiles} onChange={e => setJobForm(f => ({ ...f, jobMiles: e.target.value }))} />
-          <Input label="Total time (minutes)" tooltip="Total time from leaving for the pickup to dropping the passenger off." type="number" placeholder="e.g. 40" value={jobForm.minutes} onChange={e => setJobForm(f => ({ ...f, minutes: e.target.value }))} />
+          <Input label="Total time (minutes) — optional" tooltip="How long the job took including travel to pickup. Used to calculate your effective hourly rate per operator. Leave blank if you don't need this." type="number" placeholder="e.g. 40" value={jobForm.minutes} onChange={e => setJobForm(f => ({ ...f, minutes: e.target.value }))} />
 
           <div style={{ marginBottom: "14px" }}>
             <FieldLabel label="Payment method" tooltip="Via Operator = paid later. Cash = immediate. Card (my machine) = customer used your card reader." />
@@ -1892,7 +1895,7 @@ function OperatorsManager({ settings, setSettings }) {
   const operators = settings.operators || [];
   const [showAdd, setShowAdd] = useState(false);
   const [editIdx, setEditIdx] = useState(null);
-  const blankOp = { name: "", color: OP_COLORS[0], commissionModel: "net", commissionPct: "", fixedFee: "", hasConfigFee: false, defaultPayment: "Via Operator", notes: "" };
+  const blankOp = { name: "", color: OP_COLORS[0], commissionModel: "net", commissionPct: "", fixedFee: "", hasConfigFee: false, hasSeparateSurcharge: false, defaultPayment: "Via Operator", notes: "" };
   const [form, setForm] = useState(blankOp);
 
   function saveOp() {
@@ -1950,6 +1953,7 @@ function OperatorsManager({ settings, setSettings }) {
             <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>
               {op.commissionModel === "net" ? "Net pay" : op.commissionModel === "pct" ? `${op.commissionPct}% commission` : `£${op.fixedFee} + ${op.commissionPct}%`}
               {op.hasConfigFee ? " · Config fee" : ""}
+              {op.hasSeparateSurcharge ? " · Surcharges separate" : ""}
               {" · "}{op.defaultPayment}
             </div>
           </div>
@@ -2001,6 +2005,19 @@ function OperatorsManager({ settings, setSettings }) {
                 <button key={String(opt.v)} onClick={() => setForm(f => ({ ...f, hasConfigFee: opt.v }))} style={{ flex: 1, padding: "10px", background: form.hasConfigFee === opt.v ? C.blueBg : C.light, border: `2px solid ${form.hasConfigFee === opt.v ? C.blue : C.border}`, borderRadius: "10px", color: form.hasConfigFee === opt.v ? C.blue : C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{opt.label}</button>
               ))}
             </div>
+          </div>
+
+          {/* Separate surcharge toggle */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Pays airport surcharges separately?" tooltip="Some operators (e.g. Uber, Bolt) add airport surcharges to your wallet separately from the fare shown on the trip. Enable this to show a surcharge field when logging jobs for this operator." />
+            <div style={{ display: "flex", gap: "8px" }}>
+              {[{ v: false, label: "No — included in fare" }, { v: true, label: "Yes — added to wallet separately" }].map(opt => (
+                <button key={String(opt.v)} onClick={() => setForm(f => ({ ...f, hasSeparateSurcharge: opt.v }))} style={{ flex: 1, padding: "10px", background: form.hasSeparateSurcharge === opt.v ? C.blueBg : C.light, border: `2px solid ${form.hasSeparateSurcharge === opt.v ? C.blue : C.border}`, borderRadius: "10px", color: form.hasSeparateSurcharge === opt.v ? C.blue : C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{opt.label}</button>
+              ))}
+            </div>
+            {form.hasSeparateSurcharge && (
+              <div style={{ fontSize: "11px", color: C.sub, marginTop: "6px", fontFamily: FONT }}>A surcharge field will appear when logging jobs for this operator</div>
+            )}
           </div>
 
           {/* Default payment */}
@@ -2484,9 +2501,6 @@ function EditShiftModal({ shift, onSave, onClose }) {
 // ─── Mileage ──────────────────────────────────────────────────────────────────
 function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
   const totalBusiness = shifts.reduce((s, sh) => s + (sh.shiftMiles || 0), 0);
-  const totalJob = jobs.reduce((s, j) => s + (j.jobMiles || 0), 0);
-  const totalDead = jobs.reduce((s, j) => s + (j.deadMiles || 0), 0);
-  const deadPct = (totalJob + totalDead) > 0 ? (totalDead / (totalJob + totalDead) * 100).toFixed(1) : 0;
   const hmrc = totalBusiness <= HMRC_THRESHOLD ? totalBusiness * HMRC_RATE_1 : HMRC_THRESHOLD * HMRC_RATE_1 + (totalBusiness - HMRC_THRESHOLD) * HMRC_RATE_2;
   const remaining10k = Math.max(0, HMRC_THRESHOLD - totalBusiness);
   const sorted = [...fuelLogs].filter(f => f.mileage > 0).sort((a, b) => a.mileage - b.mileage);
@@ -2505,8 +2519,6 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "18px" }}>
         <StatCard label="Business Miles" value={totalBusiness.toFixed(0)} color={C.accent} sub="from shift logs" />
         <StatCard label="HMRC Claimable" value={fmt(hmrc)} color={C.green} />
-        <StatCard label="Job Miles" value={totalJob.toFixed(0)} color={C.blue} sub="from job diary" />
-        <StatCard label="Dead Mile %" value={`${deadPct}%`} color={parseFloat(deadPct) > 30 ? C.red : C.orange} sub="of job miles" />
       </div>
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
         <SectionTitle>HMRC Mileage Allowance</SectionTitle>
