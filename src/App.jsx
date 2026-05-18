@@ -2009,9 +2009,7 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
         {step > 0 && <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>}
         <div style={{ flex: 2 }}>
           <Btn onClick={() => setStep(s => s + 1)} color={C.accent}>
-            {step < steps.length - 1
-              ? `Next →${selectedOnStep > 0 ? ` (${selectedOnStep} selected)` : ""}`
-              : `Next → Add your own`}
+            {`Next →${selectedOnStep > 0 ? ` (${selectedOnStep} selected)` : ""}`}
           </Btn>
         </div>
       </div>
