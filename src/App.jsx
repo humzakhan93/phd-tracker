@@ -107,6 +107,18 @@ function getCostPerMile(settings, overrideMpg, overridePpl) {
     if (!mpkwh || !rate) return 0;
     return (rate / 100) / mpkwh;
   }
+  if (method === "phev") {
+    // Weighted average: electric share + fuel share
+    const electricShare = Math.min(Math.max(parseFloat(settings.phevElectricPct) || 50, 0), 100) / 100;
+    const fuelShare = 1 - electricShare;
+    const mpkwh = settings.milesPerKwh || 0;
+    const elecRate = settings.electricityRatePpl || 0;
+    const mpg = overrideMpg || settings.mpg || 0;
+    const ppl = overridePpl || settings.fuelPricePpl || 0;
+    const elecCpm = (mpkwh && elecRate) ? (elecRate / 100) / mpkwh : 0;
+    const fuelCpm = (mpg && ppl) ? (() => { const l = 282.48 / mpg; return (l / 100) * 1.60934 * (ppl / 100); })() : (settings.fuelCostPerMile || 0.18);
+    return (elecCpm * electricShare) + (fuelCpm * fuelShare);
+  }
   return settings.fuelCostPerMile || 0.18;
 }
 
@@ -384,11 +396,20 @@ function EndShiftModal({ shift, jobs, settings, onComplete, onCancel }) {
   function finish() {
     const cpm = getCostPerMile(settings || {}, parseFloat(overrideMpg), parseFloat(overridePpl));
     const shiftFuelCost = shiftMiles ? shiftMiles * cpm : 0;
+    const isElectric = settings?.fuelMethod === "electric";
+    const isPhev = settings?.fuelMethod === "phev";
+    const fuelLog = hasFuel && fuelCost && !isElectric
+      ? { id: Date.now(), date: today(), cost: parseFloat(fuelCost), litres: parseFloat(fuelLitres) || 0, mileage: parseFloat(odometerEnd) || 0, notes: "End of shift fill-up" }
+      : null;
+    const chargeLog = hasFuel && fuelCost && (isElectric || isPhev)
+      ? { id: Date.now(), date: today(), cost: parseFloat(fuelCost), kwh: parseFloat(fuelLitres) || 0, location: "End of shift", notes: "End of shift charge" }
+      : null;
     onComplete({
       endTs, shiftMiles: shiftMiles || 0,
       endOdometer: shift.mileageMode === "odometer" ? parseFloat(odometerEnd) || null : null,
       shiftFuelCost,
-      fuelLog: hasFuel && fuelCost ? { id: Date.now(), date: today(), cost: parseFloat(fuelCost), litres: parseFloat(fuelLitres) || 0, mileage: parseFloat(odometerEnd) || 0, notes: "End of shift fill-up" } : null,
+      fuelLog,
+      chargeLog,
       expenses: extraExpenses,
     });
   }
@@ -408,7 +429,7 @@ function EndShiftModal({ shift, jobs, settings, onComplete, onCancel }) {
       <div style={{ background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px", boxShadow: "0 8px 40px rgba(0,0,0,0.15)" }}>
         <div style={{ fontSize: "12px", color: C.sub, fontWeight: "600", marginBottom: "4px", fontFamily: FONT }}>Ending shift</div>
         <div style={{ fontSize: "20px", fontWeight: "800", color: C.red, marginBottom: "16px", fontFamily: FONT }}>
-          {step === "summary" ? "Shift Complete" : step === "mileage" ? "Mileage" : step === "fuel" ? "Fuel Fill-Up?" : step === "tolls" ? "Tolls & Charges?" : "Other Expenses?"}
+          {step === "summary" ? "Shift Complete" : step === "mileage" ? "Mileage" : step === "fuel" ? (settings?.fuelMethod === "electric" ? "Charge Session?" : "Fuel Fill-Up?") : step === "tolls" ? "Tolls & Charges?" : "Other Expenses?"}
         </div>
         <div style={{ display: "flex", gap: "5px", marginBottom: "22px" }}>
           {steps.map((s, i) => (<div key={s} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= stepIdx ? C.accent : C.border }} />))}
@@ -449,12 +470,24 @@ function EndShiftModal({ shift, jobs, settings, onComplete, onCancel }) {
 
         {step === "fuel" && (
           <>
-            <div style={{ fontSize: "14px", color: C.sub, marginBottom: "18px", lineHeight: "1.6", fontFamily: FONT }}>Did you fill up with fuel during or at the end of this shift?</div>
+            <div style={{ fontSize: "14px", color: C.sub, marginBottom: "18px", lineHeight: "1.6", fontFamily: FONT }}>
+              {settings?.fuelMethod === "electric" ? "Did you charge during or at the end of this shift?" : settings?.fuelMethod === "phev" ? "Did you fill up with fuel or charge during this shift?" : "Did you fill up with fuel during or at the end of this shift?"}
+            </div>
             {hasFuel === null && <YesNo onYes={() => setHasFuel(true)} onNo={() => { setHasFuel(false); setStep("tolls"); }} />}
             {hasFuel === true && (
               <>
-                <Input label="Total fuel cost (£)" type="number" placeholder="e.g. 68.00" value={fuelCost} onChange={e => setFuelCost(e.target.value)} />
-                <Input label="Litres (optional)" type="number" placeholder="e.g. 50" value={fuelLitres} onChange={e => setFuelLitres(e.target.value)} />
+                {settings?.fuelMethod !== "electric" && (
+                  <>
+                    <Input label="Total fuel cost (£)" type="number" placeholder="e.g. 68.00" value={fuelCost} onChange={e => setFuelCost(e.target.value)} />
+                    <Input label="Litres (optional)" type="number" placeholder="e.g. 50" value={fuelLitres} onChange={e => setFuelLitres(e.target.value)} />
+                  </>
+                )}
+                {(settings?.fuelMethod === "electric" || settings?.fuelMethod === "phev") && (
+                  <>
+                    <Input label="Charging cost (£)" type="number" placeholder="e.g. 8.50" value={fuelCost} onChange={e => setFuelCost(e.target.value)} />
+                    <Input label="kWh added (optional)" type="number" placeholder="e.g. 35.0" value={fuelLitres} onChange={e => setFuelLitres(e.target.value)} />
+                  </>
+                )}
                 <Btn onClick={() => setStep("tolls")} disabled={!fuelCost}>Save & Next →</Btn>
               </>
             )}
@@ -502,8 +535,8 @@ function EndShiftModal({ shift, jobs, settings, onComplete, onCancel }) {
 
         {step === "summary" && (
           <>
-            {/* Fuel cost override — shown for MPG method */}
-            {settings?.fuelMethod === "mpg" && shiftMiles > 0 && (
+            {/* Fuel cost override — shown for MPG and PHEV methods */}
+            {(settings?.fuelMethod === "mpg" || settings?.fuelMethod === "phev") && shiftMiles > 0 && (
               <div style={{ background: C.light, borderRadius: "12px", padding: "14px", marginBottom: "14px" }}>
                 <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, marginBottom: "10px", fontFamily: FONT }}>⛽ Today's fuel figures</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -627,6 +660,7 @@ export default function App() {
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
   const [fuelLogs, setFuelLogs] = useState(() => load("phd_fuel", []));
+  const [chargeLogs, setChargeLogs] = useState(() => load("phd_charges", []));
   const [shifts, setShifts] = useState(() => load("phd_shifts", []));
   const [activeShift, setActiveShift] = useState(() => load("phd_active_shift", null));
   const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18, cardFeePct: 1.69, operators: [] }));
@@ -647,6 +681,7 @@ export default function App() {
   useEffect(() => { save("phd_jobs", jobs); }, [jobs]);
   useEffect(() => { save("phd_expenses", expenses); }, [expenses]);
   useEffect(() => { save("phd_fuel", fuelLogs); }, [fuelLogs]);
+  useEffect(() => { save("phd_charges", chargeLogs); }, [chargeLogs]);
   useEffect(() => { save("phd_shifts", shifts); }, [shifts]);
   useEffect(() => { save("phd_active_shift", activeShift); }, [activeShift]);
   useEffect(() => { save("phd_settings", settings); }, [settings]);
@@ -662,6 +697,7 @@ export default function App() {
       setJobs(data.jobs || []);
       setExpenses(data.expenses || []);
       setFuelLogs(data.fuel_logs || []);
+      setChargeLogs(data.charge_logs || []);
       setShifts(data.shifts || []);
       setActiveShift(data.active_shift || null);
       setSettings(data.settings || { fuelCostPerMile: 0.18 });
@@ -672,14 +708,14 @@ export default function App() {
   async function saveCloudData() {
     if (!session?.user?.id) return;
     setCloudStatus("Saving...");
-    const payload = { user_id: session.user.id, jobs, expenses, fuel_logs: fuelLogs, shifts, active_shift: activeShift, settings, updated_at: new Date().toISOString() };
+    const payload = { user_id: session.user.id, jobs, expenses, fuel_logs: fuelLogs, charge_logs: chargeLogs, shifts, active_shift: activeShift, settings, updated_at: new Date().toISOString() };
     const { error } = await supabase.from("app_data").upsert(payload, { onConflict: "user_id" });
     if (error) { console.error("Cloud save error:", error); setCloudStatus("Save failed"); }
     else { setCloudStatus("Saved to cloud"); }
   }
 
   useEffect(() => { if (session?.user?.id && !cloudLoaded) loadCloudData(); }, [session?.user?.id, cloudLoaded]);
-  useEffect(() => { if (session?.user?.id && cloudLoaded) saveCloudData(); }, [jobs, expenses, fuelLogs, shifts, activeShift, settings, session?.user?.id, cloudLoaded]);
+  useEffect(() => { if (session?.user?.id && cloudLoaded) saveCloudData(); }, [jobs, expenses, fuelLogs, chargeLogs, shifts, activeShift, settings, session?.user?.id, cloudLoaded]);
 
   async function handleLogout() {
     setShowUserMenu(false);
@@ -689,10 +725,11 @@ export default function App() {
   }
 
   function handleStartShift(shiftData) { setActiveShift(shiftData); setShowStart(false); }
-  function handleEndShift({ endTs, shiftMiles, endOdometer, shiftFuelCost, fuelLog, expenses: newExp }) {
+  function handleEndShift({ endTs, shiftMiles, endOdometer, shiftFuelCost, fuelLog, chargeLog, expenses: newExp }) {
     setShifts(prev => [{ ...activeShift, endTs, shiftMiles, endOdometer, shiftFuelCost }, ...prev]);
     setActiveShift(null);
     if (fuelLog) setFuelLogs(prev => [fuelLog, ...prev]);
+    if (chargeLog) setChargeLogs(prev => [chargeLog, ...prev]);
     if (newExp?.length) setExpenses(prev => [...newExp, ...prev]);
     setShowEnd(false);
   }
@@ -832,7 +869,7 @@ export default function App() {
       <div style={{ padding: "16px" }}>
         {tab === "dashboard" && <Dashboard jobs={jobs} expenses={expenses} fuelLogs={fuelLogs} shifts={shifts} activeShift={activeShift} settings={settings} onStartShift={() => setShowStart(true)} onEndShift={() => setShowEnd(true)} />}
         {tab === "jobs" && <Jobs jobs={jobs} setJobs={setJobs} expenses={expenses} setExpenses={setExpenses} settings={settings} activeShift={activeShift} />}
-        {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} settings={settings} setSettings={setSettings} />}
+        {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} chargeLogs={chargeLogs} setChargeLogs={setChargeLogs} settings={settings} setSettings={setSettings} />}
         {tab === "mileage" && <Mileage jobs={jobs} shifts={shifts} setShifts={setShifts} fuelLogs={fuelLogs} />}
         {tab === "calc" && <FareCheck settings={settings} jobs={jobs} setJobs={setJobs} activeShift={activeShift} />}
       </div>
@@ -1777,6 +1814,14 @@ function SettingsPage({ settings, setSettings }) {
     if (method === "electric" && settings.milesPerKwh && settings.electricityRatePpl) {
       return (settings.electricityRatePpl / 100) / settings.milesPerKwh;
     }
+    if (method === "phev") {
+      const electricShare = Math.min(Math.max(settings.phevElectricPct ?? 50, 0), 100) / 100;
+      const fuelShare = 1 - electricShare;
+      const elecCpm = (settings.milesPerKwh && settings.electricityRatePpl) ? (settings.electricityRatePpl / 100) / settings.milesPerKwh : 0;
+      const fuelCpm = (settings.mpg && settings.fuelPricePpl) ? (() => { const l = 282.48 / settings.mpg; return (l / 100) * 1.60934 * (settings.fuelPricePpl / 100); })() : 0;
+      if (!elecCpm && !fuelCpm) return 0;
+      return (elecCpm * electricShare) + (fuelCpm * fuelShare);
+    }
     return 0;
   }
 
@@ -1794,6 +1839,7 @@ function SettingsPage({ settings, setSettings }) {
             { v: "cpm", icon: "📐", label: "Cost per mile", desc: "Enter a fixed pence-per-mile figure you've worked out yourself" },
             { v: "mpg", icon: "⛽", label: "MPG calculator", desc: "Enter your MPG and fuel price — app calculates exact cost from shift miles" },
             { v: "electric", icon: "⚡", label: "Electric vehicle", desc: "Enter miles per kWh and electricity rate for accurate EV cost" },
+            { v: "phev", icon: "🔋⛽", label: "Plug-in Hybrid (PHEV)", desc: "Track both fuel and electric costs — set the split and enter both rates" },
           ].map(opt => (
             <button key={opt.v} onClick={() => setSettings(s => ({ ...s, fuelMethod: opt.v }))} style={{
               padding: "14px", textAlign: "left", cursor: "pointer",
@@ -1831,6 +1877,39 @@ function SettingsPage({ settings, setSettings }) {
             </Field>
             <Field label="Electricity rate (pence per kWh)" hint="Home charging ≈ 7–30p/kWh" tooltip="The rate you pay to charge. Home charging is cheapest. Public rapid chargers can be 50–80p/kWh.">
               <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 24.5" value={settings.electricityRatePpl || ""} onChange={e => setSettings(s => ({ ...s, electricityRatePpl: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+          </>
+        )}
+
+        {method === "phev" && (
+          <>
+            <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>
+              Enter your electric and fuel settings. Use the split slider to set what % of your miles are typically done on electric vs fuel.
+            </div>
+            <Field label="Electric split — % of miles on electric" hint={`Currently ${settings.phevElectricPct ?? 50}% electric, ${100 - (settings.phevElectricPct ?? 50)}% fuel`} tooltip="PHEVs switch between electric and petrol/diesel. Set the approximate % of your driving done on battery. Adjust over time as you learn your real-world split.">
+              <input style={inputStyle} type="range" min="0" max="100" step="5"
+                value={settings.phevElectricPct ?? 50}
+                onChange={e => setSettings(s => ({ ...s, phevElectricPct: parseInt(e.target.value) }))}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: C.sub, fontFamily: FONT, marginTop: "4px" }}>
+                <span>0% electric (fuel only)</span>
+                <span style={{ fontWeight: "700", color: C.blue }}>{settings.phevElectricPct ?? 50}% electric</span>
+                <span>100% electric</span>
+              </div>
+            </Field>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: C.text, marginBottom: "10px", fontFamily: FONT }}>⚡ Electric settings</div>
+            <Field label="Miles per kWh" hint="From your car's trip computer" tooltip="Your PHEV's electric efficiency. Typically 3–5 miles per kWh.">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 3.5" value={settings.milesPerKwh || ""} onChange={e => setSettings(s => ({ ...s, milesPerKwh: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+            <Field label="Electricity rate (pence per kWh)" hint="Home charging ≈ 7–30p/kWh">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 24.5" value={settings.electricityRatePpl || ""} onChange={e => setSettings(s => ({ ...s, electricityRatePpl: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: C.text, marginBottom: "10px", marginTop: "4px", fontFamily: FONT }}>⛽ Fuel settings</div>
+            <Field label="Your MPG (on fuel)" hint="From your car's trip computer">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 45.0" value={settings.mpg || ""} onChange={e => setSettings(s => ({ ...s, mpg: parseFloat(e.target.value) || 0 }))} />
+            </Field>
+            <Field label="Fuel price (pence per litre)" hint="From your last fill-up">
+              <input style={inputStyle} type="number" step="0.1" placeholder="e.g. 159.9" value={settings.fuelPricePpl || ""} onChange={e => setSettings(s => ({ ...s, fuelPricePpl: parseFloat(e.target.value) || 0 }))} />
             </Field>
           </>
         )}
@@ -2043,9 +2122,14 @@ function ProfilePage({ settings, setSettings }) {
         <div style={{ marginBottom: "14px" }}>
           <FieldLabel label="Vehicle type" />
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {[{ v: "diesel", label: "⛽ Diesel" }, { v: "petrol", label: "⛽ Petrol" }, { v: "electric", label: "⚡ Electric" }, { v: "hybrid", label: "🔋 Hybrid" }].map(opt => (
+            {[{ v: "diesel", label: "⛽ Diesel" }, { v: "petrol", label: "⛽ Petrol" }, { v: "electric", label: "⚡ Electric" }, { v: "hybrid", label: "🔋 Hybrid" }, { v: "phev", label: "🔋⛽ PHEV" }].map(opt => (
               <button key={opt.v} onClick={() => update("vehicleType", opt.v)} style={{ padding: "9px 14px", borderRadius: "10px", cursor: "pointer", background: profile.vehicleType === opt.v ? C.blueBg : C.light, border: `2px solid ${profile.vehicleType === opt.v ? C.blue : C.border}`, color: profile.vehicleType === opt.v ? C.blue : C.sub, fontSize: "13px", fontWeight: "600", fontFamily: FONT }}>{opt.label}</button>
             ))}
+            {profile.vehicleType === "phev" && (
+              <div style={{ width: "100%", background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12px", color: C.blue, fontFamily: FONT, marginTop: "4px" }}>
+                🔋⛽ <strong>Plug-in Hybrid</strong> — you can track both fuel and electric charging costs separately. Set up both in Settings → Fuel Tracking.
+              </div>
+            )}
           </div>
         </div>
         <Input label="Vehicle registration" type="text" placeholder="e.g. AB12 CDE" value={profile.vrm || ""} onChange={e => update("vrm", e.target.value.toUpperCase())} />
@@ -2310,12 +2394,14 @@ function OperatorsManager({ settings, setSettings }) {
 }
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
-function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setSettings }) {
+function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, chargeLogs, setChargeLogs, settings, setSettings }) {
   const [subTab, setSubTab] = useState("expense");
   const [expForm, setExpForm] = useState({ date: today(), category: EXPENSE_CATS[0], amount: "", notes: "" });
   const [fuelForm, setFuelForm] = useState({ date: today(), cost: "", litres: "", mileage: "", notes: "" });
+  const [chargeForm, setChargeForm] = useState({ date: today(), kwh: "", cost: "", location: "", notes: "" });
   const [expAdded, setExpAdded] = useState(false);
   const [fuelAdded, setFuelAdded] = useState(false);
+  const [chargeAdded, setChargeAdded] = useState(false);
   const [quickAdded, setQuickAdded] = useState(null);
   const [pendingCharge, setPendingCharge] = useState(null); // { id, label, amount }
   const [pendingAmt, setPendingAmt] = useState("");
@@ -2323,6 +2409,7 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
   const [customCharge, setCustomCharge] = useState({ label: "", amount: "" });
   const [editingExpense, setEditingExpense] = useState(null);
   const [editingFuel, setEditingFuel] = useState(null);
+  const [editingCharge, setEditingCharge] = useState(null);
 
   const savedCustomCharges = settings.customCharges || [];
 
@@ -2362,8 +2449,17 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
     setFuelAdded(true); setTimeout(() => setFuelAdded(false), 2000);
   }
 
+  function addCharge() {
+    if (!chargeForm.cost && !chargeForm.kwh) return;
+    setChargeLogs(prev => [{ id: Date.now(), ...chargeForm, kwh: parseFloat(chargeForm.kwh) || 0, cost: parseFloat(chargeForm.cost) || 0 }, ...prev]);
+    setChargeForm(f => ({ ...f, kwh: "", cost: "", location: "", notes: "" }));
+    setChargeAdded(true); setTimeout(() => setChargeAdded(false), 2000);
+  }
+
   const totalFuel = fuelLogs.reduce((s, f) => s + f.cost, 0);
   const totalOther = expenses.reduce((s, e) => s + e.amount, 0);
+  const totalCharge = chargeLogs.reduce((s, c) => s + (c.cost || 0), 0);
+  const isElectric = ["electric", "phev"].includes(settings?.fuelMethod) || ["electric", "phev"].includes(settings?.profile?.vehicleType);
 
   return (
     <div>
@@ -2373,9 +2469,14 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
         ⚙️ Fuel cost, card fee and operators are now in the <strong style={{ color: C.text }}>☰ menu</strong> → Settings / My Operators
       </div>
 
-      <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
-        {[{ id: "expense", label: "Add Expense" }, { id: "fuel", label: "Log Fuel" }, { id: "history", label: "History" }].map(t => (
-          <button key={t.id} onClick={() => setSubTab(t.id)} style={{ flex: 1, padding: "9px 4px", background: subTab === t.id ? C.accent : "transparent", color: subTab === t.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "11px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{t.label}</button>
+      <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}`, overflowX: "auto" }}>
+        {[
+          { id: "expense", label: "Add Expense" },
+          { id: "fuel", label: isElectric && settings?.fuelMethod !== "electric" ? "Log Fuel" : settings?.fuelMethod === "electric" ? null : "Log Fuel" },
+          isElectric ? { id: "charge", label: "⚡ Log Charge" } : null,
+          { id: "history", label: "History" },
+        ].filter(Boolean).filter(t => t.label).map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} style={{ flex: "0 0 auto", padding: "9px 10px", background: subTab === t.id ? C.accent : "transparent", color: subTab === t.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "11px", fontWeight: "700", fontFamily: FONT, cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
         ))}
       </div>
       {subTab === "expense" && (
@@ -2518,11 +2619,26 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           {fuelAdded && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Logged</div>}
         </div>
       )}
+      {subTab === "charge" && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
+          <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "16px", fontSize: "13px", color: C.blue, fontFamily: FONT }}>
+            ⚡ Log a charging session — home or public. These are recorded for your expense records.
+          </div>
+          <Input label="Date" type="date" value={chargeForm.date} onChange={e => setChargeForm(f => ({ ...f, date: e.target.value }))} />
+          <Input label="Total cost (£)" type="number" placeholder="e.g. 8.50" value={chargeForm.cost} onChange={e => setChargeForm(f => ({ ...f, cost: e.target.value }))} />
+          <Input label="kWh added (optional)" tooltip="The energy added to your battery. Usually shown on the charger or your car's display." type="number" placeholder="e.g. 35.0" value={chargeForm.kwh} onChange={e => setChargeForm(f => ({ ...f, kwh: e.target.value }))} />
+          <Input label="Location (optional)" type="text" placeholder="e.g. Home, Tesco Luton, BP Rapid" value={chargeForm.location} onChange={e => setChargeForm(f => ({ ...f, location: e.target.value }))} />
+          <Input label="Notes (optional)" type="text" placeholder="e.g. overnight charge" value={chargeForm.notes} onChange={e => setChargeForm(f => ({ ...f, notes: e.target.value }))} />
+          <Btn onClick={addCharge} disabled={!chargeForm.cost && !chargeForm.kwh} color={C.blue}>⚡ Log Charge Session</Btn>
+          {chargeAdded && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Logged</div>}
+        </div>
+      )}
       {subTab === "history" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
             <StatCard label="Total Fuel" value={fmt(totalFuel)} color={C.red} sub={`${fuelLogs.length} fill-ups`} />
             <StatCard label="Other Costs" value={fmt(totalOther)} color={C.orange} sub={`${expenses.length} items`} />
+            {chargeLogs.length > 0 && <StatCard label="Charging" value={fmt(totalCharge)} color={C.blue} sub={`${chargeLogs.length} sessions`} />}
           </div>
           <SectionTitle>Expenses</SectionTitle>
           {expenses.length === 0
@@ -2558,6 +2674,24 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
               </div>
             ))
           }
+          {chargeLogs.length > 0 && (
+            <>
+              <SectionTitle>⚡ Charging Sessions</SectionTitle>
+              {chargeLogs.map(c => (
+                <div key={c.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "13px", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{c.date}{c.location ? ` · ${c.location}` : ""}</div>
+                    {c.kwh > 0 && <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{c.kwh} kWh{c.notes ? ` · ${c.notes}` : ""}</div>}
+                    <div style={{ color: C.blue, fontWeight: "700", marginTop: "3px", fontFamily: FONT }}>⚡ {fmt(c.cost)}</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                    <button onClick={() => setEditingCharge(c)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", color: C.blue, cursor: "pointer", fontSize: "11px", fontWeight: "600", padding: "3px 8px", fontFamily: FONT }}>Edit</button>
+                    <button onClick={() => setChargeLogs(prev => prev.filter(x => x.id !== c.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "16px" }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </>
       )}
 
@@ -2573,6 +2707,13 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           fuelLog={editingFuel}
           onSave={updated => { setFuelLogs(prev => prev.map(f => f.id === updated.id ? updated : f)); setEditingFuel(null); }}
           onClose={() => setEditingFuel(null)}
+        />
+      )}
+      {editingCharge && (
+        <EditChargeModal
+          chargeLog={editingCharge}
+          onSave={updated => { setChargeLogs(prev => prev.map(c => c.id === updated.id ? updated : c)); setEditingCharge(null); }}
+          onClose={() => setEditingCharge(null)}
         />
       )}
     </div>
@@ -2702,6 +2843,30 @@ function EditFuelModal({ fuelLog, onSave, onClose }) {
         <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
           <button onClick={onClose} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
           <div style={{ flex: 1 }}><Btn onClick={() => onSave({ ...fuelLog, ...form, cost: parseFloat(form.cost), litres: parseFloat(form.litres) || 0, mileage: parseFloat(form.mileage) || 0 })} disabled={!form.cost}>Save Changes</Btn></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Charge Modal ────────────────────────────────────────────────────────
+function EditChargeModal({ chargeLog, onSave, onClose }) {
+  const [form, setForm] = useState({ date: chargeLog.date || today(), cost: String(chargeLog.cost || ""), kwh: String(chargeLog.kwh || ""), location: chargeLog.location || "", notes: chargeLog.notes || "" });
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, overflowY: "auto" }}>
+      <div style={{ background: C.surface, margin: "16px", borderRadius: "20px", padding: "22px", marginBottom: "40px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+          <div style={{ fontSize: "18px", fontWeight: "800", color: C.text, fontFamily: FONT }}>⚡ Edit Charge Session</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer" }}>✕</button>
+        </div>
+        <Input label="Date" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+        <Input label="Total cost (£)" type="number" placeholder="e.g. 8.50" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} />
+        <Input label="kWh added (optional)" type="number" placeholder="e.g. 35.0" value={form.kwh} onChange={e => setForm(f => ({ ...f, kwh: e.target.value }))} />
+        <Input label="Location (optional)" type="text" placeholder="e.g. Home, Tesco Luton" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} />
+        <Input label="Notes (optional)" type="text" placeholder="e.g. overnight charge" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+          <div style={{ flex: 1 }}><Btn onClick={() => onSave({ ...chargeLog, ...form, cost: parseFloat(form.cost) || 0, kwh: parseFloat(form.kwh) || 0 })} color={C.blue}>Save Changes</Btn></div>
         </div>
       </div>
     </div>
