@@ -1876,36 +1876,92 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
     setSelections(prev => ({ ...prev, [id]: parseFloat(val) || prev[id] }));
   }
 
+  // Custom charges added in step 4
+  const [customCharges, setCustomCharges] = useState(() =>
+    (settings.savedCharges || []).filter(c => c.group === "custom")
+  );
+  const [customLabel, setCustomLabel] = useState("");
+  const [customAmount, setCustomAmount] = useState("");
+
+  function addCustom() {
+    if (!customLabel.trim() || !customAmount) return;
+    setCustomCharges(prev => [...prev, { id: "custom_" + Date.now(), label: customLabel.trim(), amount: parseFloat(customAmount), group: "custom" }]);
+    setCustomLabel(""); setCustomAmount("");
+  }
+
+  function removeCustom(id) {
+    setCustomCharges(prev => prev.filter(c => c.id !== id));
+  }
+
   function finish() {
     const allCharges = [...UK_CHARGES.airports_dropoff, ...UK_CHARGES.airports_pickup, ...UK_CHARGES.road_charges];
-    const saved = Object.entries(selections).map(([id, amount]) => {
+    const presetSaved = Object.entries(selections).map(([id, amount]) => {
       const charge = allCharges.find(c => c.id === id);
       if (!charge) return null;
       const group = UK_CHARGES.airports_dropoff.find(c => c.id === id) ? "dropoff"
         : UK_CHARGES.airports_pickup.find(c => c.id === id) ? "pickup" : "road";
       return { id, label: charge.label, amount, group };
     }).filter(Boolean);
-    setSettings(s => ({ ...s, savedCharges: saved }));
+    setSettings(s => ({ ...s, savedCharges: [...presetSaved, ...customCharges] }));
     onDone();
   }
 
-  const totalSelected = Object.keys(selections).length;
+  const totalSelected = Object.keys(selections).length + customCharges.length;
+  const TOTAL_STEPS = steps.length + 1; // +1 for custom step
 
-  if (step >= steps.length) {
+  if (step === steps.length) {
+    // Step 4 — custom charges
     return (
-      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "20px", textAlign: "center" }}>
-        <div style={{ fontSize: "32px", marginBottom: "8px" }}>✓</div>
-        <div style={{ fontSize: "16px", fontWeight: "800", color: C.green, marginBottom: "6px", fontFamily: FONT }}>Almost done!</div>
-        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>
-          {totalSelected} charge{totalSelected !== 1 ? "s" : ""} selected. Tap Save to confirm.
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
+          {Array.from({ length: TOTAL_STEPS }).map((_, i) => <div key={i} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= step ? C.accent : C.border }} />)}
         </div>
+        <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>⭐ Your own charges</div>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>
+          Add any charges specific to you — local parking spots, depot fees, or anything we've missed.
+        </div>
+
+        {/* Existing custom charges */}
+        {customCharges.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
+            {customCharges.map(c => (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px" }}>
+                <div style={{ flex: 1, fontSize: "13px", fontWeight: "600", color: C.green, fontFamily: FONT }}>{c.label}</div>
+                <div style={{ fontSize: "14px", fontWeight: "700", color: C.green, fontFamily: FONT }}>£{Number(c.amount).toFixed(2)}</div>
+                <button onClick={() => removeCustom(c.id)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px", padding: "0" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add new custom charge */}
+        <div style={{ background: C.light, borderRadius: "12px", padding: "14px", marginBottom: "16px" }}>
+          <div style={{ fontSize: "13px", fontWeight: "600", color: C.text, marginBottom: "10px", fontFamily: FONT }}>Add a charge</div>
+          <input
+            style={{ ...inputStyle, marginBottom: "8px" }}
+            type="text"
+            placeholder="Label (e.g. Bluewater Parking, Depot Fee)"
+            value={customLabel}
+            onChange={e => setCustomLabel(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: "8px" }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: "15px" }}>£</span>
+              <input style={{ ...inputStyle, paddingLeft: "26px" }} type="number" step="0.01" placeholder="Amount" value={customAmount} onChange={e => setCustomAmount(e.target.value)} />
+            </div>
+            <button onClick={addCustom} disabled={!customLabel.trim() || !customAmount} style={{ padding: "12px 16px", background: C.accent, border: "none", borderRadius: "10px", color: "#fff", fontWeight: "700", fontSize: "14px", fontFamily: FONT, cursor: "pointer", opacity: (!customLabel.trim() || !customAmount) ? 0.5 : 1 }}>+ Add</button>
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: "10px" }}>
-          <button onClick={() => setStep(steps.length - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>
-          <div style={{ flex: 2 }}><Btn onClick={finish} color={C.green}>Save charges</Btn></div>
+          <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>
+          <div style={{ flex: 2 }}><Btn onClick={finish} color={C.green}>Save {totalSelected} charge{totalSelected !== 1 ? "s" : ""} →</Btn></div>
         </div>
       </div>
     );
   }
+
+  if (step > steps.length) return null;
 
   const current = steps[step];
   const charges = UK_CHARGES[current.key];
@@ -1914,7 +1970,7 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
       <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
-        {steps.map((s, i) => <div key={i} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= step ? C.accent : C.border }} />)}
+        {Array.from({ length: TOTAL_STEPS }).map((_, i) => <div key={i} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= step ? C.accent : C.border }} />)}
       </div>
       <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>{current.title}</div>
       <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>{current.desc}</div>
@@ -1955,7 +2011,7 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
           <Btn onClick={() => setStep(s => s + 1)} color={C.accent}>
             {step < steps.length - 1
               ? `Next →${selectedOnStep > 0 ? ` (${selectedOnStep} selected)` : ""}`
-              : `Review & Save →${totalSelected > 0 ? ` (${totalSelected} total)` : ""}`}
+              : `Next → Add your own`}
           </Btn>
         </div>
       </div>
