@@ -778,10 +778,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Avatar — taps to open burger */}
-        <button onClick={() => setShowBurger(true)} style={{ width: "34px", height: "34px", borderRadius: "50%", background: C.accent, color: "#fff", border: "none", fontSize: "13px", fontWeight: "800", cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
-          {userInitial}
-        </button>
       </div>
 
       {/* ── Page content ── */}
@@ -874,9 +870,10 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
   })();
 
   const grossFares = fj.reduce((s, j) => s + (j.fare || 0), 0);
+  const totalSurcharges = fj.reduce((s, j) => s + (j.surcharge || 0), 0);
   const opCuts = fj.reduce((s, j) => s + (j.opCut || 0), 0);
   const totalTips = fj.reduce((s, j) => s + (j.tip || 0), 0);
-  const netFares = grossFares - opCuts + totalTips;
+  const netFares = grossFares + totalSurcharges - opCuts + totalTips;
   const fuelFillUps = ff.reduce((s, f) => s + (f.cost || 0), 0);
   const otherExp = fe.reduce((s, e) => s + (e.amount || 0), 0);
 
@@ -1009,6 +1006,7 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
         <SectionTitle>P&L Breakdown</SectionTitle>
         <Row label="Gross fares" value={fmt(grossFares)} />
+        {totalSurcharges > 0 && <Row label="Operator surcharges" value={`+ ${fmt(totalSurcharges)}`} color={C.green} />}
         <Row label="Operator cuts" value={`− ${fmt(opCuts)}`} color={C.red} />
         {totalTips > 0 && <Row label="Tips received" value={`+ ${fmt(totalTips)}`} color={C.green} />}
         <Row label="Net from rides" value={fmt(netFares)} color={C.green} bold />
@@ -1055,7 +1053,7 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
     stage: "start",
     operator: lastOp || operators[0]?.name || "",
     fare: "", paymentMethod: "Via Operator", cardFeePct: "",
-    tip: "", configFee: "", notes: "",
+    tip: "", surcharge: "", configFee: "", notes: "",
     jobMiles: "", minutes: "",
     date: today(), startedAt: Date.now(),
   };
@@ -1122,18 +1120,19 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
   function submitJob() {
     const fare = parseFloat(q.fare);
     if (!fare) return;
+    const surcharge = parseFloat(q.surcharge) || 0;
     const { netFare, opCut, configFeeAmt } = calcCommission(fare, selectedOp, q);
     const tip = parseFloat(q.tip) || 0;
     const cardFeePct = q.paymentMethod === "Card (my machine)" ? (parseFloat(q.cardFeePct) || settings.cardFeePct || 1.69) : 0;
     const cardFeeAmt = netFare * (cardFeePct / 100);
-    const netEarnings = netFare + tip - cardFeeAmt;
+    const netEarnings = netFare + tip + surcharge - cardFeeAmt;
     if (cardFeeAmt > 0) {
       setExpenses(prev => [{ id: Date.now() + 1, date: q.date, category: "Card Machine Fee", amount: parseFloat(cardFeeAmt.toFixed(2)), notes: `Card fee on ${fmt(fare)} job` }, ...prev]);
     }
     save("dl_last_operator", q.operator);
     setJobs(prev => [{
       id: Date.now(), date: q.date, operator: q.operator || "Other",
-      fare, netFare, opCut, configFeeAmt,
+      fare, surcharge, netFare, opCut, configFeeAmt,
       jobMiles: parseFloat(q.jobMiles) || 0, deadMiles: 0,
       minutes: parseFloat(q.minutes) || 0,
       netEarnings, tip, cardFeeAmt,
@@ -1228,6 +1227,13 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
             <div style={{ marginBottom: "16px" }}>
               <FieldLabel label="Fare (£)" tooltip="The amount shown for this job." />
               <input style={bigInput} type="number" placeholder="0.00" value={q.fare} onChange={e => setQ(q => ({ ...q, fare: e.target.value }))} />
+            </div>
+
+            {/* Operator surcharge — e.g. Uber airport surcharge */}
+            <div style={{ marginBottom: "14px" }}>
+              <FieldLabel label="Operator surcharge reimbursed (£) — optional" tooltip="If your operator adds an airport or other surcharge to your wallet separately, enter it here. Adds to your income. Remember to also log the charge as an expense." />
+              <input style={{ ...inputStyle, borderColor: q.surcharge ? C.green : C.border }} type="number" placeholder="e.g. 7.00" value={q.surcharge} onChange={e => setQ(q => ({ ...q, surcharge: e.target.value }))} />
+              {q.surcharge && <div style={{ fontSize: "11px", color: C.green, marginTop: "4px", fontFamily: FONT, fontWeight: "600" }}>✓ +{fmt(parseFloat(q.surcharge))} added to income</div>}
             </div>
 
             {/* Config fee */}
@@ -1332,7 +1338,7 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
     } catch { return false; }
   })();
 
-  const defaultJobForm = { date: today(), operator: "", fare: "", isNet: "yes", commissionPct: "", configFee: "", jobMiles: "", minutes: "", paymentMethod: "Via Operator", cardFeePct: "", tip: "", notes: "" };
+  const defaultJobForm = { date: today(), operator: "", fare: "", surcharge: "", isNet: "yes", commissionPct: "", configFee: "", jobMiles: "", minutes: "", paymentMethod: "Via Operator", cardFeePct: "", tip: "", notes: "" };
   const defaultDayForm = { date: today(), operator: "", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" };
 
   const [jobForm, setJobForm] = useState(() => load(DRAFT_JOB_KEY, defaultJobForm));
@@ -1372,13 +1378,14 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
   function addJob() {
     const fare = parseFloat(jobForm.fare);
     if (!fare) return;
+    const surcharge = parseFloat(jobForm.surcharge) || 0;
     const { netFare, opCut, configFeeAmt } = calcCommission(fare, selectedOp, jobForm);
     const tip = parseFloat(jobForm.tip) || 0;
     const cardFeePct = jobForm.paymentMethod === "Card (my machine)" ? (parseFloat(jobForm.cardFeePct) || settings.cardFeePct || 1.69) : 0;
     const cardFeeAmt = netFare * (cardFeePct / 100);
-    const netEarnings = netFare + tip - cardFeeAmt;
+    const netEarnings = netFare + tip + surcharge - cardFeeAmt;
     if (cardFeeAmt > 0) setExpenses(prev => [{ id: Date.now() + 1, date: jobForm.date, category: "Card Machine Fee", amount: parseFloat(cardFeeAmt.toFixed(2)), notes: `Card fee on ${fmt(fare)} job` }, ...prev]);
-    setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator || "Other", fare, netFare, opCut, configFeeAmt, jobMiles: parseFloat(jobForm.jobMiles) || 0, deadMiles: 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings, tip, cardFeeAmt, paymentMethod: jobForm.paymentMethod, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
+    setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator || "Other", fare, surcharge, netFare, opCut, configFeeAmt, jobMiles: parseFloat(jobForm.jobMiles) || 0, deadMiles: 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings, tip, cardFeeAmt, paymentMethod: jobForm.paymentMethod, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
     clearDraft(DRAFT_JOB_KEY);
     setJobForm(defaultJobForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
@@ -1473,6 +1480,23 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
           <OpSelector value={jobForm.operator} onChange={op => setJobForm(f => ({ ...f, operator: op.name, paymentMethod: op.defaultPayment || "Via Operator" }))} />
           <Input label="Fare (£)" tooltip="The amount shown for this job." type="number" placeholder="e.g. 22.00" value={jobForm.fare} onChange={e => setJobForm(f => ({ ...f, fare: e.target.value }))} />
 
+          {/* Operator surcharge — e.g. Uber airport surcharge paid to wallet */}
+          <div style={{ marginBottom: "14px" }}>
+            <FieldLabel label="Operator surcharge reimbursed (£) — optional" tooltip="Some operators (e.g. Uber) add airport or other surcharges to your wallet separately from the fare. Enter that amount here — it will be added to your income for this job. You should also log the corresponding charge as an expense in the Costs tab for a complete HMRC record." />
+            <input
+              style={{ ...inputStyle, borderColor: jobForm.surcharge ? C.green : C.border }}
+              type="number"
+              placeholder="e.g. 7.00 (Luton surcharge from Uber)"
+              value={jobForm.surcharge}
+              onChange={e => setJobForm(f => ({ ...f, surcharge: e.target.value }))}
+            />
+            {jobForm.surcharge && (
+              <div style={{ fontSize: "12px", color: C.green, marginTop: "6px", fontFamily: FONT, fontWeight: "600" }}>
+                ✓ +{fmt(parseFloat(jobForm.surcharge))} added to income · Remember to also log the airport charge as an expense
+              </div>
+            )}
+          </div>
+
           {selectedOp ? (
             <>
               {selectedOp.commissionModel === "net" && <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>✓ {selectedOp.name} — Net pay, no commission</div>}
@@ -1547,6 +1571,7 @@ function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
               <div style={{ fontSize: "14px", marginTop: "4px", fontFamily: FONT }}>{fmt(j.fare)} gross{j.jobMiles ? ` · ${j.jobMiles}mi` : ""}</div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
                 <div style={{ fontSize: "13px", color: j.netEarnings > 0 ? C.green : C.red, fontWeight: "600", fontFamily: FONT }}>Net {fmt(j.netEarnings)}</div>
+                {j.surcharge > 0 && <span style={{ fontSize: "11px", background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>+{fmt(j.surcharge)} surcharge</span>}
                 {j.tip > 0 && <span style={{ fontSize: "11px", background: "#FFF7ED", color: C.orange, border: `1px solid #FED7AA`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>+{fmt(j.tip)} tip</span>}
                 {j.paymentMethod && j.paymentMethod !== "Via Operator" && <span style={{ fontSize: "11px", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBorder}`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>{PAYMENT_ICONS[j.paymentMethod]} {j.paymentMethod}</span>}
               </div>
