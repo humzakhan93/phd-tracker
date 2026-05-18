@@ -1970,6 +1970,7 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
 // ─── Profile Page ─────────────────────────────────────────────────────────────
 function ProfilePage({ settings, setSettings }) {
   const profile = settings.profile || {};
+  const [showWizard, setShowWizard] = useState(false);
   function update(key, val) { setSettings(s => ({ ...s, profile: { ...(s.profile || {}), [key]: val } })); }
 
   return (
@@ -2024,8 +2025,14 @@ function ProfilePage({ settings, setSettings }) {
         <div style={{ fontSize: "13px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>
           Select the airport and road charges you regularly encounter. These appear in Quick Add when logging expenses.
         </div>
-        {!(settings.savedCharges?.length > 0) ? (
-          <ChargesSetupWizard settings={settings} setSettings={setSettings} onDone={() => {}} />
+
+        {/* Show wizard if no charges saved yet, or if driver clicked redo */}
+        {(!(settings.savedCharges?.length > 0) || showWizard) ? (
+          <ChargesSetupWizard
+            settings={settings}
+            setSettings={setSettings}
+            onDone={() => setShowWizard(false)}
+          />
         ) : (
           <>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
@@ -2046,7 +2053,7 @@ function ProfilePage({ settings, setSettings }) {
                 </div>
               ))}
             </div>
-            <button onClick={() => setSettings(s => ({ ...s, savedCharges: [] }))} style={{ background: "none", border: `1px dashed ${C.border}`, borderRadius: "8px", padding: "8px 14px", color: C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
+            <button onClick={() => { setShowWizard(true); }} style={{ background: "none", border: `1px dashed ${C.border}`, borderRadius: "8px", padding: "8px 14px", color: C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
               ↺ Redo charges setup
             </button>
           </>
