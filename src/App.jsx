@@ -951,21 +951,13 @@ function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
       const b64 = ev.target.result.split(",")[1];
       const mime = file.type || "image/jpeg";
       try {
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
+        const res = await fetch("/api/scan-screenshot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 500,
-            system: `You extract job data from private hire driver app screenshots (Uber, Bolt, etc). Return ONLY valid JSON, no markdown:
-{ "fare": number or null, "jobMiles": number or null, "minutes": number or null, "notes": string or null, "date": "YYYY-MM-DD or null" }
-Today is ${today()}. fare is the amount shown to the driver. minutes is duration if shown. jobMiles is distance if shown.`,
-            messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: mime, data: b64 } }, { type: "text", text: "Extract job data from this screenshot." }] }]
-          })
+          body: JSON.stringify({ imageData: b64, mimeType: mime }),
         });
-        const data = await res.json();
-        const text = (data.content || []).map(b => b.text || "").join("");
-        const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        const parsed = await res.json();
+        if (!res.ok) throw new Error(parsed.error || "Scan failed");
         setScanResult(parsed);
         setQ(prev => ({
           ...prev,
