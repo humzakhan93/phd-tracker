@@ -33,6 +33,7 @@ const PRESET_CHARGES = [
 // ─── Draft autosave keys ──────────────────────────────────────────────────────
 const DRAFT_JOB_KEY = "dl_draft_job";
 const DRAFT_DAY_KEY = "dl_draft_day";
+const QUICK_LOG_KEY = "dl_quick_log";
 
 const fmt = (n) => `£${Math.abs(Number(n || 0)).toFixed(2)}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -691,7 +692,7 @@ export default function App() {
       {/* ── Page content ── */}
       <div style={{ padding: "16px" }}>
         {tab === "dashboard" && <Dashboard jobs={jobs} expenses={expenses} fuelLogs={fuelLogs} shifts={shifts} activeShift={activeShift} settings={settings} onStartShift={() => setShowStart(true)} onEndShift={() => setShowEnd(true)} />}
-        {tab === "jobs" && <Jobs jobs={jobs} setJobs={setJobs} settings={settings} activeShift={activeShift} />}
+        {tab === "jobs" && <Jobs jobs={jobs} setJobs={setJobs} expenses={expenses} setExpenses={setExpenses} settings={settings} activeShift={activeShift} />}
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} settings={settings} setSettings={setSettings} />}
         {tab === "mileage" && <Mileage jobs={jobs} shifts={shifts} setShifts={setShifts} fuelLogs={fuelLogs} />}
         {tab === "calc" && <FareCheck settings={settings} jobs={jobs} setJobs={setJobs} activeShift={activeShift} />}
@@ -900,37 +901,319 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
   );
 }
 
-// ─── Jobs ─────────────────────────────────────────────────────────────────────
-function Jobs({ jobs, setJobs, settings, activeShift }) {
-  const [logMode, setLogMode] = useState("job");
 
-  // ── Draft autosave — load from localStorage on mount ──────────────────────
-  const defaultJobForm = { date: today(), operator: "", fare: "", isNet: "yes", commissionPct: "", configFee: "", jobMiles: "", deadMiles: "", minutes: "", paymentMethod: "Via Operator", cardFeePct: "", tip: "", notes: "" };
-  const defaultDayForm = { date: today(), operator: "Uber", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" };
+// ─── Quick Log Flow ───────────────────────────────────────────────────────────
+function QuickLog({ settings, activeShift, setJobs, setExpenses, onClose }) {
+  const operators = settings.operators || [];
+  const lastOp = load("dl_last_operator", operators[0]?.name || "");
+  const fileRef = useRef(null);
+
+  const blankQuick = {
+    stage: "start",
+    operator: lastOp || operators[0]?.name || "",
+    fare: "", paymentMethod: "Via Operator", cardFeePct: "",
+    tip: "", configFee: "", notes: "",
+    jobMiles: "", minutes: "",
+    date: today(), startedAt: Date.now(),
+  };
+
+  const [q, setQ] = useState(() => load(QUICK_LOG_KEY, blankQuick));
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+
+  useEffect(() => { save(QUICK_LOG_KEY, q); }, [q]);
+
+  const selectedOp = operators.find(o => o.name === q.operator);
+
+  function calcCommission(fare, op, form) {
+    const fareNum = parseFloat(fare) || 0;
+    if (!op) return { netFare: fareNum, opCut: 0, configFeeAmt: 0 };
+    const configFeeAmt = op.hasConfigFee ? (parseFloat(form.configFee) || 0) : 0;
+    if (op.commissionModel === "net") return { netFare: fareNum, opCut: 0, configFeeAmt };
+    if (op.commissionModel === "pct") {
+      const afterConfig = fareNum - configFeeAmt;
+      const comm = afterConfig * (op.commissionPct / 100);
+      return { netFare: afterConfig - comm, opCut: comm + configFeeAmt, configFeeAmt };
+    }
+    if (op.commissionModel === "fixed_then_pct") {
+      const afterFixed = fareNum - (op.fixedFee || 0);
+      const comm = afterFixed * (op.commissionPct / 100);
+      return { netFare: afterFixed - comm, opCut: (op.fixedFee || 0) + comm, configFeeAmt: 0 };
+    }
+    return { netFare: fareNum, opCut: 0, configFeeAmt: 0 };
+  }
+
+  async function scanScreenshot(file) {
+    if (!file) return;
+    setScanning(true); setScanResult(null);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const b64 = ev.target.result.split(",")[1];
+      const mime = file.type || "image/jpeg";
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 500,
+            system: `You extract job data from private hire driver app screenshots (Uber, Bolt, etc). Return ONLY valid JSON, no markdown:
+{ "fare": number or null, "jobMiles": number or null, "minutes": number or null, "notes": string or null, "date": "YYYY-MM-DD or null" }
+Today is ${today()}. fare is the amount shown to the driver. minutes is duration if shown. jobMiles is distance if shown.`,
+            messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: mime, data: b64 } }, { type: "text", text: "Extract job data from this screenshot." }] }]
+          })
+        });
+        const data = await res.json();
+        const text = (data.content || []).map(b => b.text || "").join("");
+        const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        setScanResult(parsed);
+        setQ(prev => ({
+          ...prev,
+          fare: parsed.fare ? String(parsed.fare) : prev.fare,
+          jobMiles: parsed.jobMiles ? String(parsed.jobMiles) : prev.jobMiles,
+          minutes: parsed.minutes ? String(parsed.minutes) : prev.minutes,
+          notes: parsed.notes || prev.notes,
+          date: parsed.date || prev.date,
+        }));
+      } catch { setScanResult({ error: true }); }
+      setScanning(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function submitJob() {
+    const fare = parseFloat(q.fare);
+    if (!fare) return;
+    const { netFare, opCut, configFeeAmt } = calcCommission(fare, selectedOp, q);
+    const tip = parseFloat(q.tip) || 0;
+    const cardFeePct = q.paymentMethod === "Card (my machine)" ? (parseFloat(q.cardFeePct) || settings.cardFeePct || 1.69) : 0;
+    const cardFeeAmt = netFare * (cardFeePct / 100);
+    const netEarnings = netFare + tip - cardFeeAmt;
+    if (cardFeeAmt > 0) {
+      setExpenses(prev => [{ id: Date.now() + 1, date: q.date, category: "Card Machine Fee", amount: parseFloat(cardFeeAmt.toFixed(2)), notes: `Card fee on ${fmt(fare)} job` }, ...prev]);
+    }
+    save("dl_last_operator", q.operator);
+    setJobs(prev => [{
+      id: Date.now(), date: q.date, operator: q.operator || "Other",
+      fare, netFare, opCut, configFeeAmt,
+      jobMiles: parseFloat(q.jobMiles) || 0, deadMiles: 0,
+      minutes: parseFloat(q.minutes) || 0,
+      netEarnings, tip, cardFeeAmt,
+      paymentMethod: q.paymentMethod,
+      notes: q.notes, shiftId: activeShift?.id || null, type: "quick",
+    }, ...prev]);
+    clearDraft(QUICK_LOG_KEY);
+    onClose(true);
+  }
+
+  function resetAndClose() { clearDraft(QUICK_LOG_KEY); onClose(false); }
+
+  const bigInput = { ...inputStyle, fontSize: "28px", fontWeight: "800", textAlign: "center", padding: "16px", borderRadius: "14px" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, overflowY: "auto" }}>
+      <div style={{ background: C.surface, margin: "12px", borderRadius: "20px", padding: "22px", marginBottom: "40px", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+          <div>
+            <div style={{ fontSize: "11px", color: C.sub, fontWeight: "600", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: FONT }}>
+              {q.stage === "start" ? "Step 1 of 3" : q.stage === "finish" ? "Step 2 of 3" : "Step 3 of 3"}
+            </div>
+            <div style={{ fontSize: "18px", fontWeight: "800", color: C.text, fontFamily: FONT }}>
+              {q.stage === "start" ? "⚡ Job Details" : q.stage === "finish" ? "🏁 Job Complete" : "✓ Confirm & Save"}
+            </div>
+          </div>
+          <button onClick={resetAndClose} style={{ background: "none", border: "none", color: C.muted, fontSize: "22px", cursor: "pointer" }}>×</button>
+        </div>
+
+        {/* Progress */}
+        <div style={{ display: "flex", gap: "4px", marginBottom: "22px" }}>
+          {["start", "finish", "review"].map((s, i) => (
+            <div key={s} style={{ flex: 1, height: "4px", borderRadius: "2px", background: ["start", "finish", "review"].indexOf(q.stage) >= i ? C.accent : C.border }} />
+          ))}
+        </div>
+
+        {/* ── STAGE 1: Job comes in ── */}
+        {q.stage === "start" && (
+          <>
+            {/* Screenshot scan */}
+            <div style={{ marginBottom: "18px" }}>
+              <label htmlFor="ql-scan" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", background: C.blueBg, border: `1.5px solid ${C.blueBorder}`, borderRadius: "12px", cursor: "pointer" }}>
+                <span style={{ fontSize: "20px" }}>📸</span>
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: "700", color: C.blue, fontFamily: FONT }}>Fill from screenshot</div>
+                  <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>Upload a trip screenshot — AI reads the details for you</div>
+                </div>
+              </label>
+              <input id="ql-scan" type="file" accept="image/*" style={{ display: "none" }} ref={fileRef} onChange={e => scanScreenshot(e.target.files[0])} />
+              {scanning && <div style={{ fontSize: "12px", color: C.blue, marginTop: "8px", fontFamily: FONT }}>⟳ Reading screenshot...</div>}
+              {scanResult && !scanResult.error && (
+                <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "8px", padding: "8px 12px", marginTop: "8px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>
+                  ✓ Found: {scanResult.fare ? fmt(scanResult.fare) : ""}{scanResult.jobMiles ? ` · ${scanResult.jobMiles}mi` : ""}{scanResult.minutes ? ` · ${scanResult.minutes}min` : ""} — check fields below and amend if needed
+                </div>
+              )}
+              {scanResult?.error && <div style={{ fontSize: "12px", color: C.red, marginTop: "8px", fontFamily: FONT }}>Couldn't read screenshot — fill in manually below</div>}
+            </div>
+
+            {/* Operator */}
+            {operators.length > 0 ? (
+              <div style={{ marginBottom: "16px" }}>
+                <FieldLabel label="Operator" />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {operators.map(op => (
+                    <button key={op.name} onClick={() => setQ(q => ({ ...q, operator: op.name, paymentMethod: op.defaultPayment || "Via Operator" }))} style={{
+                      padding: "10px 16px", borderRadius: "20px", cursor: "pointer",
+                      background: q.operator === op.name ? op.color + "22" : C.light,
+                      border: `2px solid ${q.operator === op.name ? op.color : C.border}`,
+                      color: q.operator === op.name ? op.color : C.sub,
+                      fontSize: "14px", fontWeight: "700", fontFamily: FONT,
+                    }}>{op.name}</button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "10px", padding: "12px", marginBottom: "16px", fontSize: "13px", color: C.orange, fontFamily: FONT }}>
+                No operators set up. Go to <strong>Costs → My Operators</strong> first.
+              </div>
+            )}
+
+            {/* Commission info */}
+            {selectedOp && (
+              <div style={{ background: selectedOp.commissionModel === "net" ? C.greenBg : C.blueBg, border: `1px solid ${selectedOp.commissionModel === "net" ? C.greenBorder : C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: selectedOp.commissionModel === "net" ? C.green : C.blue, fontFamily: FONT, fontWeight: "600" }}>
+                {selectedOp.commissionModel === "net" ? `✓ ${selectedOp.name} — Net pay, no commission` : selectedOp.commissionModel === "pct" ? `${selectedOp.name} — ${selectedOp.commissionPct}% commission` : `${selectedOp.name} — £${selectedOp.fixedFee} fixed + ${selectedOp.commissionPct}%`}
+              </div>
+            )}
+
+            {/* Fare — big */}
+            <div style={{ marginBottom: "16px" }}>
+              <FieldLabel label="Fare (£)" tooltip="The amount shown for this job." />
+              <input style={bigInput} type="number" placeholder="0.00" value={q.fare} onChange={e => setQ(q => ({ ...q, fare: e.target.value }))} />
+            </div>
+
+            {/* Config fee */}
+            {selectedOp?.hasConfigFee && (
+              <Input label="Config fee (£) — if applicable" tooltip="Leave blank if no config fee on this job." type="number" placeholder="e.g. 2.50" value={q.configFee} onChange={e => setQ(q => ({ ...q, configFee: e.target.value }))} />
+            )}
+
+            {/* Payment method */}
+            <div style={{ marginBottom: "16px" }}>
+              <FieldLabel label="Payment method" />
+              <div style={{ display: "flex", gap: "6px" }}>
+                {PAYMENT_METHODS.map(m => (
+                  <button key={m} onClick={() => setQ(q => ({ ...q, paymentMethod: m }))} style={{ flex: 1, padding: "10px 4px", borderRadius: "10px", cursor: "pointer", background: q.paymentMethod === m ? C.blueBg : C.light, border: `2px solid ${q.paymentMethod === m ? C.blue : C.border}`, color: q.paymentMethod === m ? C.blue : C.sub, fontSize: "10px", fontWeight: "600", fontFamily: FONT, textAlign: "center" }}>
+                    {PAYMENT_ICONS[m]}<br />{m}
+                  </button>
+                ))}
+              </div>
+              {q.paymentMethod === "Card (my machine)" && (
+                <input style={{ ...inputStyle, marginTop: "8px" }} type="number" placeholder={`Card fee % (default ${settings.cardFeePct || 1.69}%)`} value={q.cardFeePct} onChange={e => setQ(q => ({ ...q, cardFeePct: e.target.value }))} />
+              )}
+            </div>
+
+            <Input label="Notes (optional)" type="text" placeholder="e.g. Airport run, regular customer" value={q.notes} onChange={e => setQ(q => ({ ...q, notes: e.target.value }))} />
+            <Input label="Date" type="date" value={q.date} onChange={e => setQ(q => ({ ...q, date: e.target.value }))} />
+
+            <Btn onClick={() => setQ(q => ({ ...q, stage: "finish" }))} disabled={!q.fare || !q.operator} color={C.accent} big>
+              Job started → complete later
+            </Btn>
+            <button onClick={() => setQ(q => ({ ...q, stage: "review" }))} style={{ background: "none", border: "none", color: C.sub, fontSize: "12px", cursor: "pointer", fontFamily: FONT, width: "100%", textAlign: "center", marginTop: "10px" }}>
+              I've already finished — review & submit now
+            </button>
+          </>
+        )}
+
+        {/* ── STAGE 2: Job done ── */}
+        {q.stage === "finish" && (
+          <>
+            <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "12px", padding: "14px", marginBottom: "18px" }}>
+              <div style={{ fontWeight: "700", color: C.green, marginBottom: "4px", fontFamily: FONT }}>Job in progress</div>
+              <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>{q.operator} · {fmt(parseFloat(q.fare) || 0)} · {q.paymentMethod}</div>
+              {q.notes && <div style={{ color: C.sub, fontSize: "13px", fontFamily: FONT }}>{q.notes}</div>}
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <FieldLabel label="Miles driven" tooltip="Distance of this trip — pickup to dropoff." />
+              <input style={bigInput} type="number" placeholder="0.0" value={q.jobMiles} onChange={e => setQ(q => ({ ...q, jobMiles: e.target.value }))} />
+            </div>
+
+            <Input label="Duration (minutes)" tooltip="Total time from leaving for the pickup to dropping the passenger off." type="number" placeholder="e.g. 25" value={q.minutes} onChange={e => setQ(q => ({ ...q, minutes: e.target.value }))} />
+            <Input label="Tip received (£) — optional" tooltip="Any tip received. Taxable income — declare on self-assessment." type="number" placeholder="e.g. 3.00" value={q.tip} onChange={e => setQ(q => ({ ...q, tip: e.target.value }))} />
+
+            <Btn onClick={() => setQ(q => ({ ...q, stage: "review" }))} color={C.accent} big>Review & Submit →</Btn>
+            <button onClick={() => setQ(q => ({ ...q, stage: "start" }))} style={{ background: "none", border: "none", color: C.sub, fontSize: "12px", cursor: "pointer", fontFamily: FONT, width: "100%", textAlign: "center", marginTop: "10px" }}>← Back to edit job details</button>
+          </>
+        )}
+
+        {/* ── STAGE 3: Review ── */}
+        {q.stage === "review" && (() => {
+          const fare = parseFloat(q.fare) || 0;
+          const { netFare, opCut, configFeeAmt } = calcCommission(fare, selectedOp, q);
+          const tip = parseFloat(q.tip) || 0;
+          const cardFeePct = q.paymentMethod === "Card (my machine)" ? (parseFloat(q.cardFeePct) || settings.cardFeePct || 1.69) : 0;
+          const cardFeeAmt = netFare * (cardFeePct / 100);
+          const netEarnings = netFare + tip - cardFeeAmt;
+          return (
+            <>
+              <div style={{ background: C.light, borderRadius: "12px", padding: "16px", marginBottom: "16px" }}>
+                <SectionTitle>Job Summary</SectionTitle>
+                <Row label="Operator" value={q.operator || "—"} />
+                <Row label="Date" value={q.date} />
+                <Row label="Fare" value={fmt(fare)} />
+                {opCut > 0 && <Row label="Commission" value={`− ${fmt(opCut)}`} color={C.red} />}
+                {configFeeAmt > 0 && <Row label="Config fee" value={`− ${fmt(configFeeAmt)}`} color={C.red} />}
+                {cardFeeAmt > 0 && <Row label="Card fee" value={`− ${fmt(cardFeeAmt)}`} color={C.red} />}
+                {tip > 0 && <Row label="Tip" value={`+ ${fmt(tip)}`} color={C.green} />}
+                <Row label="Miles" value={q.jobMiles ? `${q.jobMiles} mi` : "—"} />
+                <Row label="Duration" value={q.minutes ? `${q.minutes} min` : "—"} />
+                <Row label="Payment" value={q.paymentMethod} />
+                {q.notes && <Row label="Notes" value={q.notes} />}
+                <Row label="Net earnings" value={fmt(netEarnings)} color={netEarnings > 0 ? C.green : C.red} bold />
+              </div>
+              <Btn onClick={submitJob} disabled={!fare || !q.operator} color={C.green} big>✓ Save Job</Btn>
+              <button onClick={() => setQ(q => ({ ...q, stage: q.jobMiles ? "finish" : "start" }))} style={{ background: "none", border: "none", color: C.sub, fontSize: "12px", cursor: "pointer", fontFamily: FONT, width: "100%", textAlign: "center", marginTop: "10px" }}>← Edit details</button>
+            </>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ─── Jobs ─────────────────────────────────────────────────────────────────────
+function Jobs({ jobs, setJobs, expenses, setExpenses, settings, activeShift }) {
+  const [logMode, setLogMode] = useState("job");
+  const [showQuickLog, setShowQuickLog] = useState(false);
+  const [quickAdded, setQuickAdded] = useState(false);
+
+  const hasQuickDraft = (() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(QUICK_LOG_KEY));
+      return d && d.fare && d.stage === "finish";
+    } catch { return false; }
+  })();
+
+  const defaultJobForm = { date: today(), operator: "", fare: "", isNet: "yes", commissionPct: "", configFee: "", jobMiles: "", minutes: "", paymentMethod: "Via Operator", cardFeePct: "", tip: "", notes: "" };
+  const defaultDayForm = { date: today(), operator: "", totalFare: "", isNet: "yes", commissionPct: "", totalJobs: "", totalMiles: "", notes: "" };
 
   const [jobForm, setJobForm] = useState(() => load(DRAFT_JOB_KEY, defaultJobForm));
   const [dayForm, setDayForm] = useState(() => load(DRAFT_DAY_KEY, defaultDayForm));
   const [added, setAdded] = useState(false);
 
-  // Save drafts to localStorage whenever form changes
   useEffect(() => { save(DRAFT_JOB_KEY, jobForm); }, [jobForm]);
   useEffect(() => { save(DRAFT_DAY_KEY, dayForm); }, [dayForm]);
 
   const hasDraftJob = jobForm.fare || jobForm.jobMiles || jobForm.notes;
   const hasDraftDay = dayForm.totalFare || dayForm.totalJobs || dayForm.notes;
-
-  // Get selected operator profile
   const selectedOp = (settings.operators || []).find(o => o.name === jobForm.operator);
 
   function calcCommission(fare, op, form) {
-    if (!op) {
-      // Manual entry fallback
-      if (form.isNet === "yes") return { netFare: parseFloat(fare) || 0, opCut: 0, configFeeAmt: 0 };
-      const pct = parseFloat(form.commissionPct) || 0;
-      const netFare = (parseFloat(fare) || 0) * (1 - pct / 100);
-      return { netFare, opCut: fare - netFare, configFeeAmt: 0 };
-    }
     const fareNum = parseFloat(fare) || 0;
+    if (!op) {
+      if (form.isNet === "yes") return { netFare: fareNum, opCut: 0, configFeeAmt: 0 };
+      const pct = parseFloat(form.commissionPct) || 0;
+      return { netFare: fareNum * (1 - pct / 100), opCut: fareNum * pct / 100, configFeeAmt: 0 };
+    }
     const configFeeAmt = op.hasConfigFee ? (parseFloat(form.configFee) || 0) : 0;
     if (op.commissionModel === "net") return { netFare: fareNum, opCut: 0, configFeeAmt };
     if (op.commissionModel === "pct") {
@@ -948,20 +1231,14 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
 
   function addJob() {
     const fare = parseFloat(jobForm.fare);
-    const jobMiles = parseFloat(jobForm.jobMiles) || 0;
     if (!fare) return;
     const { netFare, opCut, configFeeAmt } = calcCommission(fare, selectedOp, jobForm);
     const tip = parseFloat(jobForm.tip) || 0;
-    const fuelCost = (jobMiles + (parseFloat(jobForm.deadMiles) || 0)) * settings.fuelCostPerMile;
-    // Card fee if paid by card machine
     const cardFeePct = jobForm.paymentMethod === "Card (my machine)" ? (parseFloat(jobForm.cardFeePct) || settings.cardFeePct || 1.69) : 0;
     const cardFeeAmt = netFare * (cardFeePct / 100);
-    const netEarnings = netFare - fuelCost + tip - cardFeeAmt;
-    // Auto-log card fee as expense
-    if (cardFeeAmt > 0) {
-      setExpenses(prev => [{ id: Date.now() + 1, date: jobForm.date, category: "Card Machine Fee", amount: parseFloat(cardFeeAmt.toFixed(2)), notes: `Card fee on ${fmt(fare)} job` }, ...prev]);
-    }
-    setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator || "Other", fare, netFare, opCut, configFeeAmt, jobMiles, deadMiles: parseFloat(jobForm.deadMiles) || 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings, tip, cardFeeAmt, paymentMethod: jobForm.paymentMethod, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
+    const netEarnings = netFare + tip - cardFeeAmt;
+    if (cardFeeAmt > 0) setExpenses(prev => [{ id: Date.now() + 1, date: jobForm.date, category: "Card Machine Fee", amount: parseFloat(cardFeeAmt.toFixed(2)), notes: `Card fee on ${fmt(fare)} job` }, ...prev]);
+    setJobs(prev => [{ id: Date.now(), date: jobForm.date, operator: jobForm.operator || "Other", fare, netFare, opCut, configFeeAmt, jobMiles: parseFloat(jobForm.jobMiles) || 0, deadMiles: 0, minutes: parseFloat(jobForm.minutes) || 0, netEarnings, tip, cardFeeAmt, paymentMethod: jobForm.paymentMethod, notes: jobForm.notes, shiftId: activeShift?.id || null, type: "job" }, ...prev]);
     clearDraft(DRAFT_JOB_KEY);
     setJobForm(defaultJobForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
@@ -972,8 +1249,7 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
     if (!fare) return;
     const selectedDayOp = (settings.operators || []).find(o => o.name === dayForm.operator);
     const { netFare, opCut } = calcCommission(fare, selectedDayOp, { isNet: dayForm.isNet, commissionPct: dayForm.commissionPct, configFee: "" });
-    const fuelCost = (parseFloat(dayForm.totalMiles) || 0) * settings.fuelCostPerMile;
-    setJobs(prev => [{ id: Date.now(), date: dayForm.date, operator: dayForm.operator || "Other", fare, netFare, opCut, jobMiles: parseFloat(dayForm.totalMiles) || 0, deadMiles: 0, minutes: 0, netEarnings: netFare - fuelCost, tip: 0, paymentMethod: "Via Operator", notes: dayForm.notes || `${dayForm.totalJobs || "?"} jobs`, shiftId: activeShift?.id || null, type: "day" }, ...prev]);
+    setJobs(prev => [{ id: Date.now(), date: dayForm.date, operator: dayForm.operator || "Other", fare, netFare, opCut, jobMiles: parseFloat(dayForm.totalMiles) || 0, deadMiles: 0, minutes: 0, netEarnings: netFare, tip: 0, paymentMethod: "Via Operator", notes: dayForm.notes || `${dayForm.totalJobs || "?"} jobs`, shiftId: activeShift?.id || null, type: "day" }, ...prev]);
     clearDraft(DRAFT_DAY_KEY);
     setDayForm(defaultDayForm);
     setAdded(true); setTimeout(() => setAdded(false), 2000);
@@ -981,21 +1257,36 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
 
   const FareTypeToggle = ({ value, onChange, commPct, onCommChange }) => (
     <div style={{ marginBottom: "14px" }}>
-      <FieldLabel label="Is this the net amount you receive?" tooltip="Net means you get this exact amount. Gross means a commission % will be deducted from it." />
-      <div style={{ display: "flex", gap: "8px", marginBottom: commPct !== undefined && value === "no" ? "10px" : 0 }}>
-        {[{ v: "yes", label: "Yes — net amount" }, { v: "no", label: "No — commission taken" }].map(opt => (
+      <FieldLabel label="Is this the net amount you receive?" tooltip="Net means you get this exact amount. Gross means commission will be deducted." />
+      <div style={{ display: "flex", gap: "8px" }}>
+        {[{ v: "yes", label: "Yes — net" }, { v: "no", label: "No — commission taken" }].map(opt => (
           <button key={opt.v} onClick={() => onChange(opt.v)} style={{ flex: 1, padding: "10px", background: value === opt.v ? C.greenBg : C.light, border: `2px solid ${value === opt.v ? C.green : C.border}`, borderRadius: "10px", color: value === opt.v ? C.green : C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>{opt.label}</button>
         ))}
       </div>
-      {value === "no" && (
-        <input style={{ ...inputStyle, marginTop: "8px" }} type="number" placeholder="Commission % (e.g. 25)" value={commPct} onChange={e => onCommChange(e.target.value)} />
+      {value === "no" && <input style={{ ...inputStyle, marginTop: "8px" }} type="number" placeholder="Commission % (e.g. 25)" value={commPct} onChange={e => onCommChange(e.target.value)} />}
+    </div>
+  );
+
+  const OpSelector = ({ value, onChange }) => (
+    <div style={{ marginBottom: "14px" }}>
+      <FieldLabel label="Operator" />
+      {(settings.operators || []).length === 0 ? (
+        <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "10px", padding: "12px", fontSize: "13px", color: C.orange, fontFamily: FONT }}>
+          No operators set up. Go to <strong>Costs → My Operators</strong>.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {(settings.operators || []).map(op => (
+            <button key={op.name} onClick={() => onChange(op)} style={{ padding: "8px 14px", borderRadius: "20px", cursor: "pointer", background: value === op.name ? op.color + "22" : C.light, border: `2px solid ${value === op.name ? op.color : C.border}`, color: value === op.name ? op.color : C.sub, fontSize: "13px", fontWeight: "700", fontFamily: FONT }}>{op.name}</button>
+          ))}
+        </div>
       )}
     </div>
   );
 
   return (
     <div>
-      <TabIntro storageKey="intro_jobs" icon="🚖" title="Jobs Tab" body="Log your earnings here. Choose how you want to enter data — job by job for full detail, or daily totals for speed. Your form is saved automatically if you switch apps." />
+      <TabIntro storageKey="intro_jobs" icon="🚖" title="Jobs Tab" body="Use Quick Log to capture a job as it happens — takes 10 seconds. Use By Job for full detail when you have more time, or By Day for end-of-day totals." />
 
       {activeShift && (
         <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "12px", padding: "10px 14px", marginBottom: "16px", fontSize: "13px", color: C.green, fontWeight: "600", fontFamily: FONT }}>
@@ -1003,6 +1294,26 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
         </div>
       )}
 
+      {/* Quick Log button */}
+      <button onClick={() => setShowQuickLog(true)} style={{
+        width: "100%", padding: "18px", marginBottom: "16px",
+        background: hasQuickDraft ? `linear-gradient(135deg, ${C.orange}, #D4891A)` : `linear-gradient(135deg, ${C.accent}, ${C.accentDark})`,
+        border: "none", borderRadius: "14px", cursor: "pointer", color: "#fff",
+        fontFamily: FONT, boxShadow: "0 4px 14px rgba(245,166,35,0.35)",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: "12px",
+      }}>
+        <span style={{ fontSize: "24px" }}>{hasQuickDraft ? "🔄" : "⚡"}</span>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: "16px", fontWeight: "800" }}>{hasQuickDraft ? "Resume In-Progress Job" : "Quick Log"}</div>
+          <div style={{ fontSize: "11px", opacity: 0.85, marginTop: "2px" }}>
+            {hasQuickDraft ? "You have a job waiting to be completed" : "Log a job as it happens · takes 10 seconds · 📸 screenshot supported"}
+          </div>
+        </div>
+      </button>
+
+      {quickAdded && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginBottom: "12px", fontFamily: FONT, fontWeight: "600" }}>⚡ Job saved!</div>}
+
+      {/* Mode selector */}
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
         {[{ id: "job", label: "By Job" }, { id: "day", label: "By Day" }].map(m => (
           <button key={m.id} onClick={() => setLogMode(m.id)} style={{ flex: 1, padding: "9px 4px", background: logMode === m.id ? C.accent : "transparent", color: logMode === m.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "12px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{m.label}</button>
@@ -1014,98 +1325,44 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <SectionTitle>Log a Single Job</SectionTitle>
-            {hasDraftJob && (
-              <button onClick={() => { clearDraft(DRAFT_JOB_KEY); setJobForm(defaultJobForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT, whiteSpace: "nowrap" }}>Clear draft</button>
-            )}
+            {hasDraftJob && <button onClick={() => { clearDraft(DRAFT_JOB_KEY); setJobForm(defaultJobForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT }}>Clear draft</button>}
           </div>
-          {hasDraftJob && (
-            <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>
-              📝 Draft restored — your form was saved when you switched away
-            </div>
-          )}
+          {hasDraftJob && <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>📝 Draft restored</div>}
+
           <Input label="Date" type="date" value={jobForm.date} onChange={e => setJobForm(f => ({ ...f, date: e.target.value }))} />
-
-          {/* Operator selector — uses custom operators from settings */}
-          <div style={{ marginBottom: "14px" }}>
-            <FieldLabel label="Operator" tooltip="Select the company this job is with. Set up your operators in the Costs tab under Settings." />
-            {(settings.operators || []).length === 0 ? (
-              <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "10px", padding: "12px", fontSize: "13px", color: C.orange, fontFamily: FONT }}>
-                No operators set up yet. Go to <strong>Costs → Settings → My Operators</strong> to add yours.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {(settings.operators || []).map(op => (
-                  <button key={op.name} onClick={() => setJobForm(f => ({ ...f, operator: op.name, paymentMethod: op.defaultPayment || "Via Operator", commissionPct: op.commissionModel === "pct" ? String(op.commissionPct) : "" }))} style={{
-                    padding: "8px 14px", borderRadius: "20px", cursor: "pointer",
-                    background: jobForm.operator === op.name ? op.color + "22" : C.light,
-                    border: `2px solid ${jobForm.operator === op.name ? op.color : C.border}`,
-                    color: jobForm.operator === op.name ? op.color : C.sub,
-                    fontSize: "13px", fontWeight: "700", fontFamily: FONT,
-                  }}>{op.name}</button>
-                ))}
-              </div>
-            )}
-          </div>
-
+          <OpSelector value={jobForm.operator} onChange={op => setJobForm(f => ({ ...f, operator: op.name, paymentMethod: op.defaultPayment || "Via Operator" }))} />
           <Input label="Fare (£)" tooltip="The amount shown for this job." type="number" placeholder="e.g. 22.00" value={jobForm.fare} onChange={e => setJobForm(f => ({ ...f, fare: e.target.value }))} />
 
-          {/* Commission — shown based on operator model */}
           {selectedOp ? (
             <>
-              {selectedOp.commissionModel === "net" && (
-                <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>
-                  ✓ {selectedOp.name} — Net pay, no commission deducted
-                </div>
-              )}
-              {selectedOp.commissionModel === "pct" && (
-                <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>
-                  Commission: <strong>{selectedOp.commissionPct}%</strong> will be deducted automatically
-                </div>
-              )}
-              {selectedOp.commissionModel === "fixed_then_pct" && (
-                <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>
-                  Fixed fee £{selectedOp.fixedFee} then {selectedOp.commissionPct}% on remainder
-                </div>
-              )}
-              {selectedOp.hasConfigFee && (
-                <Input label="Config fee (£) — if applicable" tooltip="The config fee for this job that goes back to the operator. Leave blank if there isn't one for this job." type="number" placeholder="e.g. 2.50" value={jobForm.configFee} onChange={e => setJobForm(f => ({ ...f, configFee: e.target.value }))} />
-              )}
+              {selectedOp.commissionModel === "net" && <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>✓ {selectedOp.name} — Net pay, no commission</div>}
+              {selectedOp.commissionModel === "pct" && <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>Commission: <strong>{selectedOp.commissionPct}%</strong></div>}
+              {selectedOp.commissionModel === "fixed_then_pct" && <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.blue, fontFamily: FONT }}>£{selectedOp.fixedFee} + {selectedOp.commissionPct}% on remainder</div>}
+              {selectedOp.hasConfigFee && <Input label="Config fee (£) — if applicable" tooltip="Per-job config fee. Leave blank if none." type="number" placeholder="e.g. 2.50" value={jobForm.configFee} onChange={e => setJobForm(f => ({ ...f, configFee: e.target.value }))} />}
             </>
-          ) : jobForm.operator ? null : (
-            <FareTypeToggle value={jobForm.isNet} onChange={v => setJobForm(f => ({ ...f, isNet: v }))} commPct={jobForm.commissionPct} onCommChange={v => setJobForm(f => ({ ...f, commissionPct: v }))} />
-          )}
+          ) : !jobForm.operator && <FareTypeToggle value={jobForm.isNet} onChange={v => setJobForm(f => ({ ...f, isNet: v }))} commPct={jobForm.commissionPct} onCommChange={v => setJobForm(f => ({ ...f, commissionPct: v }))} />}
 
-          <Input label="Job miles (pickup to dropoff)" tooltip="Distance of the actual trip — pickup location to where you drop the passenger." type="number" placeholder="e.g. 15" value={jobForm.jobMiles} onChange={e => setJobForm(f => ({ ...f, jobMiles: e.target.value }))} />
-          <Input label="Dead miles to pickup" tooltip="Miles you drove to reach the pickup from where you were. These cost you fuel but earn nothing." type="number" placeholder="e.g. 2" value={jobForm.deadMiles} onChange={e => setJobForm(f => ({ ...f, deadMiles: e.target.value }))} />
-          <Input label="Total time (minutes)" tooltip="Total time from when you left for the pickup to when you dropped the passenger off." type="number" placeholder="e.g. 40" value={jobForm.minutes} onChange={e => setJobForm(f => ({ ...f, minutes: e.target.value }))} />
+          <Input label="Job miles (pickup to dropoff)" tooltip="Distance of the actual trip." type="number" placeholder="e.g. 15" value={jobForm.jobMiles} onChange={e => setJobForm(f => ({ ...f, jobMiles: e.target.value }))} />
+          <Input label="Total time (minutes)" tooltip="Total time from leaving for the pickup to dropping the passenger off." type="number" placeholder="e.g. 40" value={jobForm.minutes} onChange={e => setJobForm(f => ({ ...f, minutes: e.target.value }))} />
 
-          {/* Payment method */}
           <div style={{ marginBottom: "14px" }}>
-            <FieldLabel label="Payment method" tooltip="Via Operator means they collect payment and pay you later. Cash is immediate. Card (my machine) means the customer paid via your own card reader — a fee will be deducted." />
+            <FieldLabel label="Payment method" tooltip="Via Operator = paid later. Cash = immediate. Card (my machine) = customer used your card reader." />
             <div style={{ display: "flex", gap: "6px" }}>
               {PAYMENT_METHODS.map(m => (
-                <button key={m} onClick={() => setJobForm(f => ({ ...f, paymentMethod: m, cardFeePct: m === "Card (my machine)" ? String(settings.cardFeePct || 1.69) : "" }))} style={{
-                  flex: 1, padding: "9px 6px", borderRadius: "10px", cursor: "pointer",
-                  background: jobForm.paymentMethod === m ? C.blueBg : C.light,
-                  border: `2px solid ${jobForm.paymentMethod === m ? C.blue : C.border}`,
-                  color: jobForm.paymentMethod === m ? C.blue : C.sub,
-                  fontSize: "11px", fontWeight: "600", fontFamily: FONT, textAlign: "center",
-                }}>{PAYMENT_ICONS[m]}<br />{m}</button>
+                <button key={m} onClick={() => setJobForm(f => ({ ...f, paymentMethod: m }))} style={{ flex: 1, padding: "9px 4px", borderRadius: "10px", cursor: "pointer", background: jobForm.paymentMethod === m ? C.blueBg : C.light, border: `2px solid ${jobForm.paymentMethod === m ? C.blue : C.border}`, color: jobForm.paymentMethod === m ? C.blue : C.sub, fontSize: "10px", fontWeight: "600", fontFamily: FONT, textAlign: "center" }}>
+                  {PAYMENT_ICONS[m]}<br />{m}
+                </button>
               ))}
             </div>
             {jobForm.paymentMethod === "Card (my machine)" && (
               <div style={{ marginTop: "10px" }}>
-                <Input label="Card machine fee %" tooltip="Your card reader's transaction fee. Default is taken from your settings but you can override it here." type="number" placeholder="e.g. 1.69" value={jobForm.cardFeePct || String(settings.cardFeePct || 1.69)} onChange={e => setJobForm(f => ({ ...f, cardFeePct: e.target.value }))} />
-                {jobForm.fare && (
-                  <div style={{ fontSize: "12px", color: C.red, fontFamily: FONT, marginTop: "-8px", marginBottom: "8px" }}>
-                    Fee on this job: {fmt(parseFloat(jobForm.fare) * ((parseFloat(jobForm.cardFeePct) || settings.cardFeePct || 1.69) / 100))}
-                  </div>
-                )}
+                <Input label="Card machine fee %" type="number" placeholder={`e.g. ${settings.cardFeePct || 1.69}`} value={jobForm.cardFeePct} onChange={e => setJobForm(f => ({ ...f, cardFeePct: e.target.value }))} />
+                {jobForm.fare && <div style={{ fontSize: "12px", color: C.red, fontFamily: FONT, marginTop: "-8px", marginBottom: "8px" }}>Fee: {fmt(parseFloat(jobForm.fare) * ((parseFloat(jobForm.cardFeePct) || settings.cardFeePct || 1.69) / 100))}</div>}
               </div>
             )}
           </div>
 
-          <Input label="Tip received (£) — optional" tooltip="Any tip the customer gave you. Tips are taxable income and should be declared on your self-assessment." type="number" placeholder="e.g. 3.00" value={jobForm.tip} onChange={e => setJobForm(f => ({ ...f, tip: e.target.value }))} />
+          <Input label="Tip (£) — optional" tooltip="Any tip received. Taxable income." type="number" placeholder="e.g. 3.00" value={jobForm.tip} onChange={e => setJobForm(f => ({ ...f, tip: e.target.value }))} />
           <Input label="Notes (optional)" type="text" placeholder="e.g. Luton airport run" value={jobForm.notes} onChange={e => setJobForm(f => ({ ...f, notes: e.target.value }))} />
           <Btn onClick={addJob} disabled={!jobForm.fare}>Add Job</Btn>
           {added && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Added</div>}
@@ -1117,87 +1374,64 @@ function Jobs({ jobs, setJobs, settings, activeShift }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <SectionTitle>Log Daily Total</SectionTitle>
-            {hasDraftDay && (
-              <button onClick={() => { clearDraft(DRAFT_DAY_KEY); setDayForm(defaultDayForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT, whiteSpace: "nowrap" }}>Clear draft</button>
-            )}
+            {hasDraftDay && <button onClick={() => { clearDraft(DRAFT_DAY_KEY); setDayForm(defaultDayForm); }} style={{ background: "none", border: "none", color: C.muted, fontSize: "11px", cursor: "pointer", fontFamily: FONT }}>Clear draft</button>}
           </div>
-          {hasDraftDay && (
-            <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>
-              📝 Draft restored — your form was saved when you switched away
-            </div>
-          )}
-          <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "14px", fontSize: "13px", color: C.blue, fontFamily: FONT }}>
-            Use this to log your total earnings for a full day or session with one operator.
-          </div>
-          <Input label="Date" type="date" value={dayForm.date} onChange={e => setDayForm(f => ({ ...f, date: e.target.value }))} />
+          {hasDraftDay && <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "8px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>📝 Draft restored</div>}
+          <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "10px", padding: "12px", marginBottom: "14px", fontSize: "13px", color: C.blue, fontFamily: FONT }}>Log total earnings for a full day with one operator.</div>
 
-          {/* Operator selector */}
-          <div style={{ marginBottom: "14px" }}>
-            <FieldLabel label="Operator" />
-            {(settings.operators || []).length === 0 ? (
-              <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "10px", padding: "12px", fontSize: "13px", color: C.orange, fontFamily: FONT }}>
-                No operators set up yet. Go to <strong>Costs → Settings → My Operators</strong>.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {(settings.operators || []).map(op => (
-                  <button key={op.name} onClick={() => setDayForm(f => ({ ...f, operator: op.name }))} style={{
-                    padding: "8px 14px", borderRadius: "20px", cursor: "pointer",
-                    background: dayForm.operator === op.name ? op.color + "22" : C.light,
-                    border: `2px solid ${dayForm.operator === op.name ? op.color : C.border}`,
-                    color: dayForm.operator === op.name ? op.color : C.sub,
-                    fontSize: "13px", fontWeight: "700", fontFamily: FONT,
-                  }}>{op.name}</button>
-                ))}
-              </div>
-            )}
-          </div>
-          <Input label="Total earnings (£)" tooltip="Your total earnings for this operator for the day." type="number" placeholder="e.g. 145.00" value={dayForm.totalFare} onChange={e => setDayForm(f => ({ ...f, totalFare: e.target.value }))} />
+          <Input label="Date" type="date" value={dayForm.date} onChange={e => setDayForm(f => ({ ...f, date: e.target.value }))} />
+          <OpSelector value={dayForm.operator} onChange={op => setDayForm(f => ({ ...f, operator: op.name }))} />
+          <Input label="Total earnings (£)" tooltip="Your total for this operator today." type="number" placeholder="e.g. 145.00" value={dayForm.totalFare} onChange={e => setDayForm(f => ({ ...f, totalFare: e.target.value }))} />
           <FareTypeToggle value={dayForm.isNet} onChange={v => setDayForm(f => ({ ...f, isNet: v }))} commPct={dayForm.commissionPct} onCommChange={v => setDayForm(f => ({ ...f, commissionPct: v }))} />
           <Input label="Number of jobs (optional)" type="number" placeholder="e.g. 8" value={dayForm.totalJobs} onChange={e => setDayForm(f => ({ ...f, totalJobs: e.target.value }))} />
-          <Input label="Total miles driven (optional)" tooltip="Total miles for the whole day including dead miles." type="number" placeholder="e.g. 94" value={dayForm.totalMiles} onChange={e => setDayForm(f => ({ ...f, totalMiles: e.target.value }))} />
+          <Input label="Total miles driven (optional)" type="number" placeholder="e.g. 94" value={dayForm.totalMiles} onChange={e => setDayForm(f => ({ ...f, totalMiles: e.target.value }))} />
           <Input label="Notes (optional)" type="text" placeholder="e.g. Friday evening shift" value={dayForm.notes} onChange={e => setDayForm(f => ({ ...f, notes: e.target.value }))} />
           <Btn onClick={addDay} disabled={!dayForm.totalFare}>Add Day</Btn>
           {added && <div style={{ textAlign: "center", color: C.green, fontSize: "13px", marginTop: "8px", fontFamily: FONT }}>✓ Added</div>}
         </div>
       )}
 
+      {/* Job history */}
       <SectionTitle>Job History ({jobs.length})</SectionTitle>
       {jobs.length === 0
         ? <div style={{ color: C.sub, textAlign: "center", padding: "30px 0", fontSize: "13px", fontFamily: FONT }}>No jobs logged yet</div>
         : jobs.slice(0, 50).map(j => (
           <div key={j.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "14px", marginBottom: "8px", display: "flex", justifyContent: "space-between", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px", flexWrap: "wrap" }}>
                 <Pill label={j.operator} color={(settings.operators || []).find(o => o.name === j.operator)?.color || C.accent} />
                 {j.type === "day" && <span style={{ fontSize: "10px", color: C.muted, fontFamily: FONT }}>daily total</span>}
-                {j.type === "imported" && <span style={{ fontSize: "10px", color: C.muted, fontFamily: FONT }}>imported</span>}
+                {j.type === "quick" && <span style={{ fontSize: "10px", color: C.muted, fontFamily: FONT }}>⚡ quick</span>}
               </div>
               <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>{j.date}{j.notes ? ` · ${j.notes}` : ""}</div>
               <div style={{ fontSize: "14px", marginTop: "4px", fontFamily: FONT }}>{fmt(j.fare)} gross{j.jobMiles ? ` · ${j.jobMiles}mi` : ""}</div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
-                <div style={{ fontSize: "13px", color: j.netEarnings > 0 ? C.green : C.red, fontWeight: "600", fontFamily: FONT }}>
-                  Net {fmt(j.netEarnings)}
-                </div>
-                {j.tip > 0 && (
-                  <span style={{ fontSize: "11px", background: "#FFF7ED", color: C.orange, border: `1px solid #FED7AA`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>
-                    +{fmt(j.tip)} tip
-                  </span>
-                )}
-                {j.paymentMethod && j.paymentMethod !== "App / Operator" && (
-                  <span style={{ fontSize: "11px", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBorder}`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>
-                    {PAYMENT_ICONS[j.paymentMethod]} {j.paymentMethod}
-                  </span>
-                )}
+                <div style={{ fontSize: "13px", color: j.netEarnings > 0 ? C.green : C.red, fontWeight: "600", fontFamily: FONT }}>Net {fmt(j.netEarnings)}</div>
+                {j.tip > 0 && <span style={{ fontSize: "11px", background: "#FFF7ED", color: C.orange, border: `1px solid #FED7AA`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>+{fmt(j.tip)} tip</span>}
+                {j.paymentMethod && j.paymentMethod !== "Via Operator" && <span style={{ fontSize: "11px", background: C.blueBg, color: C.blue, border: `1px solid ${C.blueBorder}`, borderRadius: "20px", padding: "1px 8px", fontWeight: "600", fontFamily: FONT }}>{PAYMENT_ICONS[j.paymentMethod]} {j.paymentMethod}</span>}
               </div>
             </div>
             <button onClick={() => setJobs(prev => prev.filter(x => x.id !== j.id))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px", paddingLeft: "10px" }}>✕</button>
           </div>
         ))
       }
+
+      {showQuickLog && (
+        <QuickLog
+          settings={settings}
+          activeShift={activeShift}
+          setJobs={setJobs}
+          setExpenses={setExpenses}
+          onClose={(saved) => {
+            setShowQuickLog(false);
+            if (saved) { setQuickAdded(true); setTimeout(() => setQuickAdded(false), 3000); }
+          }}
+        />
+      )}
     </div>
   );
 }
+
 
 // ─── Fare Check ───────────────────────────────────────────────────────────────
 function FareCheck({ settings, jobs, setJobs, activeShift }) {
@@ -1632,4 +1866,3 @@ function Mileage({ jobs, shifts, setShifts, fuelLogs }) {
     </div>
   );
 }
-              
