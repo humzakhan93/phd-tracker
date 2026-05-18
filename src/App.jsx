@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -528,8 +528,6 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [cloudStatus, setCloudStatus] = useState("Saved to cloud");
   const [cloudLoaded, setCloudLoaded] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const menuRef = useRef(null);
 
   const [jobs, setJobs] = useState(() => load("phd_jobs", []));
   const [expenses, setExpenses] = useState(() => load("phd_expenses", []));
@@ -539,21 +537,6 @@ export default function App() {
   const [settings, setSettings] = useState(() => load("phd_settings", { fuelCostPerMile: 0.18, cardFeePct: 1.69, operators: [] }));
   const [showStart, setShowStart] = useState(false);
   const [showEnd, setShowEnd] = useState(false);
-
-  // Close menu when tapping outside
-  useEffect(() => {
-    function handleClick(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setShowUserMenu(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("touchstart", handleClick);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("touchstart", handleClick);
-    };
-  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -619,6 +602,9 @@ export default function App() {
     setShowEnd(false);
   }
 
+  const [showBurger, setShowBurger] = useState(false);
+  const [burgerPage, setBurgerPage] = useState(null); // null | "profile" | "operators" | "settings" | "documents"
+
   const tabs = [
     { id: "dashboard", label: "Home", icon: "🏠" },
     { id: "jobs", label: "Jobs", icon: "🚖" },
@@ -638,15 +624,99 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: FONT, paddingBottom: "72px" }}>
 
+      {/* ── Burger menu overlay ── */}
+      {showBurger && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 400, display: "flex" }}>
+          {/* Backdrop */}
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }} onClick={() => { setShowBurger(false); setBurgerPage(null); }} />
+          {/* Drawer */}
+          <div style={{ position: "relative", width: "80%", maxWidth: "320px", background: C.surface, height: "100%", overflowY: "auto", boxShadow: "4px 0 30px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column" }}>
+            {/* Drawer header */}
+            <div style={{ background: C.accent, padding: "48px 20px 20px", display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "800", color: "#fff", fontFamily: FONT }}>
+                {userInitial}
+              </div>
+              <div>
+                <div style={{ fontSize: "15px", fontWeight: "800", color: "#fff", fontFamily: FONT }}>Driver Ledger</div>
+                <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.8)", fontFamily: FONT, marginTop: "2px" }}>{userEmail}</div>
+              </div>
+            </div>
+
+            {/* Menu items */}
+            <div style={{ flex: 1, padding: "12px 0" }}>
+              {[
+                { id: "profile", icon: "👤", label: "My Profile", sub: "Name, vehicle, licence details" },
+                { id: "operators", icon: "🏢", label: "My Operators", sub: "Commission rules and settings" },
+                { id: "settings", icon: "⚙️", label: "Settings", sub: "Fuel cost, card fee, preferences" },
+                { id: "documents", icon: "📁", label: "Documents", sub: "Licences, insurance, MOT" },
+              ].map(item => (
+                <button key={item.id} onClick={() => { setBurgerPage(item.id); setShowBurger(false); }} style={{
+                  width: "100%", padding: "14px 20px", background: "none", border: "none",
+                  display: "flex", alignItems: "center", gap: "14px", cursor: "pointer",
+                  textAlign: "left", borderBottom: `1px solid ${C.border}`,
+                }}>
+                  <span style={{ fontSize: "22px", width: "28px", textAlign: "center" }}>{item.icon}</span>
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: "700", color: C.text, fontFamily: FONT }}>{item.label}</div>
+                    <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT, marginTop: "2px" }}>{item.sub}</div>
+                  </div>
+                  <span style={{ marginLeft: "auto", color: C.muted, fontSize: "16px" }}>›</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Bottom — logout */}
+            <div style={{ padding: "12px 0", borderTop: `1px solid ${C.border}` }}>
+              <button onClick={handleLogout} style={{
+                width: "100%", padding: "14px 20px", background: "none", border: "none",
+                display: "flex", alignItems: "center", gap: "14px", cursor: "pointer",
+                color: C.red,
+              }}>
+                <span style={{ fontSize: "22px", width: "28px", textAlign: "center" }}>🚪</span>
+                <div style={{ fontSize: "14px", fontWeight: "700", fontFamily: FONT }}>Log out</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Burger sub-pages ── */}
+      {burgerPage && (
+        <div style={{ position: "fixed", inset: 0, background: C.bg, zIndex: 350, overflowY: "auto", paddingBottom: "40px" }}>
+          {/* Sub-page header */}
+          <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <button onClick={() => setBurgerPage(null)} style={{ background: "none", border: "none", color: C.accent, fontSize: "16px", fontWeight: "700", cursor: "pointer", fontFamily: FONT, padding: "0" }}>‹ Back</button>
+            <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, fontFamily: FONT }}>
+              {burgerPage === "profile" ? "My Profile" : burgerPage === "operators" ? "My Operators" : burgerPage === "settings" ? "Settings" : "Documents"}
+            </div>
+          </div>
+          <div style={{ padding: "16px" }}>
+            {burgerPage === "operators" && <OperatorsManager settings={settings} setSettings={setSettings} />}
+            {burgerPage === "settings" && <SettingsPage settings={settings} setSettings={setSettings} />}
+            {burgerPage === "profile" && <ProfilePage settings={settings} setSettings={setSettings} />}
+            {burgerPage === "documents" && <DocumentsPage />}
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", alignItems: "center", gap: "10px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-        <img src="/logo.png" alt="Driver Ledger" style={{ width: "34px", height: "34px", borderRadius: "8px", objectFit: "contain" }} />
+        {/* Burger button */}
+        <button onClick={() => setShowBurger(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", display: "flex", flexDirection: "column", gap: "5px", justifyContent: "center" }}>
+          <div style={{ width: "22px", height: "2px", background: C.text, borderRadius: "2px" }} />
+          <div style={{ width: "22px", height: "2px", background: C.text, borderRadius: "2px" }} />
+          <div style={{ width: "22px", height: "2px", background: C.text, borderRadius: "2px" }} />
+        </button>
+
+        <img src="/logo.png" alt="Driver Ledger" style={{ width: "30px", height: "30px", borderRadius: "7px", objectFit: "contain" }} />
+
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, fontFamily: FONT, lineHeight: 1.2 }}>Driver Ledger</div>
-          <div style={{ fontSize: "10px", color: cloudStatus === "Save failed" ? C.red : cloudStatus === "Saving..." ? C.orange : C.green, fontFamily: FONT, fontWeight: "600", marginTop: "2px" }}>
+          <div style={{ fontSize: "15px", fontWeight: "800", color: C.text, fontFamily: FONT, lineHeight: 1.2 }}>Driver Ledger</div>
+          <div style={{ fontSize: "10px", color: cloudStatus === "Save failed" ? C.red : cloudStatus === "Saving..." ? C.orange : C.green, fontFamily: FONT, fontWeight: "600", marginTop: "1px" }}>
             {cloudStatus === "Saving..." ? "⟳ Saving..." : cloudStatus === "Save failed" ? "✕ Save failed" : "✓ Saved to cloud"}
           </div>
         </div>
+
         {activeShift && (
           <div style={{ display: "flex", alignItems: "center", gap: "5px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 10px" }}>
             <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: C.green }} />
@@ -654,47 +724,10 @@ export default function App() {
           </div>
         )}
 
-        {/* User avatar + menu */}
-        <div ref={menuRef} style={{ position: "relative" }}>
-          <button
-            onClick={() => setShowUserMenu(s => !s)}
-            style={{
-              width: "36px", height: "36px", borderRadius: "50%",
-              background: C.accent, color: "#fff", border: "none",
-              fontSize: "14px", fontWeight: "800", cursor: "pointer",
-              fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-            }}
-          >{userInitial}</button>
-
-          {showUserMenu && (
-            <div style={{
-              position: "absolute", top: "44px", right: 0,
-              background: C.surface, border: `1px solid ${C.border}`,
-              borderRadius: "14px", padding: "8px", minWidth: "200px",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.12)", zIndex: 200,
-            }}>
-              <div style={{ padding: "8px 12px 10px", borderBottom: `1px solid ${C.border}`, marginBottom: "6px" }}>
-                <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT }}>Signed in as</div>
-                <div style={{ fontSize: "13px", fontWeight: "600", color: C.text, fontFamily: FONT, wordBreak: "break-all" }}>{userEmail}</div>
-              </div>
-              <button
-                onClick={handleLogout}
-                style={{
-                  width: "100%", padding: "10px 12px", background: "none",
-                  border: "none", borderRadius: "9px", color: C.red,
-                  fontSize: "14px", fontWeight: "600", fontFamily: FONT,
-                  cursor: "pointer", textAlign: "left",
-                  display: "flex", alignItems: "center", gap: "8px",
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = C.redBg}
-                onMouseLeave={e => e.currentTarget.style.background = "none"}
-              >
-                <span>🚪</span> Log out
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Avatar — taps to open burger */}
+        <button onClick={() => setShowBurger(true)} style={{ width: "34px", height: "34px", borderRadius: "50%", background: C.accent, color: "#fff", border: "none", fontSize: "13px", fontWeight: "800", cursor: "pointer", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
+          {userInitial}
+        </button>
       </div>
 
       {/* ── Page content ── */}
@@ -732,6 +765,29 @@ export default function App() {
 function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, onStartShift, onEndShift }) {
   const [range, setRange] = useState("today");
   const elapsed = useElapsed(activeShift?.startTs);
+
+  // Renewal reminders — check profile dates
+  const profile = settings.profile || {};
+  const renewalFields = [
+    { key: "pcoExpiry", label: "PCO Licence" },
+    { key: "dbsExpiry", label: "DBS" },
+    { key: "medicalExpiry", label: "Medical" },
+    { key: "motExpiry", label: "MOT" },
+    { key: "insuranceExpiry", label: "Insurance" },
+  ];
+  const upcoming = renewalFields.filter(f => {
+    if (!profile[f.key]) return false;
+    const days = Math.ceil((new Date(profile[f.key]) - new Date()) / (1000 * 60 * 60 * 24));
+    return days <= 30 && days >= 0;
+  }).map(f => {
+    const days = Math.ceil((new Date(profile[f.key]) - new Date()) / (1000 * 60 * 60 * 24));
+    return { ...f, days };
+  });
+  const overdue = renewalFields.filter(f => {
+    if (!profile[f.key]) return false;
+    const days = Math.ceil((new Date(profile[f.key]) - new Date()) / (1000 * 60 * 60 * 24));
+    return days < 0;
+  }).map(f => ({ ...f, days: Math.abs(Math.ceil((new Date(profile[f.key]) - new Date()) / (1000 * 60 * 60 * 24))) }));
 
   // Filter jobs/expenses/fuel by selected range
   const todayStr = today();
@@ -812,6 +868,18 @@ function Dashboard({ jobs, expenses, fuelLogs, shifts, activeShift, settings, on
 
   return (
     <div>
+      {/* Renewal reminders */}
+      {overdue.length > 0 && overdue.map(r => (
+        <div key={r.key} style={{ background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "10px", fontSize: "13px", color: C.red, fontFamily: FONT, fontWeight: "600" }}>
+          ⚠️ {r.label} expired {r.days} day{r.days !== 1 ? "s" : ""} ago — update in ☰ → My Profile
+        </div>
+      ))}
+      {upcoming.length > 0 && upcoming.map(r => (
+        <div key={r.key} style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "12px", padding: "12px 14px", marginBottom: "10px", fontSize: "13px", color: C.orange, fontFamily: FONT, fontWeight: "600" }}>
+          🔔 {r.label} expires in {r.days} day{r.days !== 1 ? "s" : ""} — check ☰ → My Profile
+        </div>
+      ))}
+
       {/* Shift button */}
       {!activeShift ? (
         <button onClick={onStartShift} style={{
@@ -1552,6 +1620,103 @@ function FareCheck({ settings, jobs, setJobs, activeShift }) {
   );
 }
 
+// ─── Settings Page ────────────────────────────────────────────────────────────
+function SettingsPage({ settings, setSettings }) {
+  return (
+    <div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Fuel & Costs</SectionTitle>
+        <Field label="Fuel cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi. Used in all profit calculations." tooltip="Divide your last fill-up cost by the miles driven since the previous fill-up.">
+          <input style={inputStyle} type="number" step="0.01" value={settings.fuelCostPerMile} onChange={e => setSettings(s => ({ ...s, fuelCostPerMile: parseFloat(e.target.value) || 0 }))} />
+        </Field>
+        <Field label="Card machine fee %" hint="Default fee deducted on card payments" tooltip="Your card reader's standard transaction fee. Used as the default when logging a card payment job.">
+          <input style={inputStyle} type="number" step="0.01" placeholder="e.g. 1.69" value={settings.cardFeePct || ""} onChange={e => setSettings(s => ({ ...s, cardFeePct: parseFloat(e.target.value) || 0 }))} />
+        </Field>
+      </div>
+      <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "12px", padding: "14px", fontSize: "13px", color: C.blue, fontFamily: FONT, lineHeight: "1.7" }}>
+        More settings coming soon — vehicle type, MPG tracking, licensing authority and notification preferences.
+      </div>
+    </div>
+  );
+}
+
+// ─── Profile Page ─────────────────────────────────────────────────────────────
+function ProfilePage({ settings, setSettings }) {
+  const profile = settings.profile || {};
+  function update(key, val) { setSettings(s => ({ ...s, profile: { ...(s.profile || {}), [key]: val } })); }
+
+  return (
+    <div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Personal Details</SectionTitle>
+        <Input label="Full name" type="text" placeholder="e.g. Mohammed Khan" value={profile.name || ""} onChange={e => update("name", e.target.value)} />
+        <Input label="Phone number" type="tel" placeholder="e.g. 07700 900000" value={profile.phone || ""} onChange={e => update("phone", e.target.value)} />
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Vehicle</SectionTitle>
+        <div style={{ marginBottom: "14px" }}>
+          <FieldLabel label="Vehicle type" />
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {[{ v: "diesel", label: "⛽ Diesel" }, { v: "petrol", label: "⛽ Petrol" }, { v: "electric", label: "⚡ Electric" }, { v: "hybrid", label: "🔋 Hybrid" }].map(opt => (
+              <button key={opt.v} onClick={() => update("vehicleType", opt.v)} style={{ padding: "9px 14px", borderRadius: "10px", cursor: "pointer", background: profile.vehicleType === opt.v ? C.blueBg : C.light, border: `2px solid ${profile.vehicleType === opt.v ? C.blue : C.border}`, color: profile.vehicleType === opt.v ? C.blue : C.sub, fontSize: "13px", fontWeight: "600", fontFamily: FONT }}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+        <Input label="Vehicle registration" type="text" placeholder="e.g. AB12 CDE" value={profile.vrm || ""} onChange={e => update("vrm", e.target.value.toUpperCase())} />
+        <Input label="Vehicle make & model" type="text" placeholder="e.g. Toyota Prius 2022" value={profile.vehicle || ""} onChange={e => update("vehicle", e.target.value)} />
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Licensing</SectionTitle>
+        <div style={{ marginBottom: "14px" }}>
+          <FieldLabel label="Licensing authority" />
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
+            {[{ v: "tfl", label: "🏙 TfL (London)" }, { v: "wolverhampton", label: "🔵 Wolverhampton" }, { v: "other", label: "📍 Other" }].map(opt => (
+              <button key={opt.v} onClick={() => update("authority", opt.v)} style={{ padding: "9px 14px", borderRadius: "10px", cursor: "pointer", background: profile.authority === opt.v ? C.blueBg : C.light, border: `2px solid ${profile.authority === opt.v ? C.blue : C.border}`, color: profile.authority === opt.v ? C.blue : C.sub, fontSize: "13px", fontWeight: "600", fontFamily: FONT }}>{opt.label}</button>
+            ))}
+          </div>
+          {profile.authority === "other" && <input style={inputStyle} type="text" placeholder="Enter your licensing authority" value={profile.authorityName || ""} onChange={e => update("authorityName", e.target.value)} />}
+        </div>
+        <Input label="Badge / licence number" type="text" placeholder="e.g. 1234567" value={profile.badgeNo || ""} onChange={e => update("badgeNo", e.target.value)} />
+        <Input label="DBS certificate number (optional)" type="text" placeholder="e.g. 001234567890" value={profile.dbsNo || ""} onChange={e => update("dbsNo", e.target.value)} />
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>Renewal Dates</SectionTitle>
+        <div style={{ fontSize: "12px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>Set your renewal dates and we'll remind you when they're coming up.</div>
+        <Input label="PCO / Private hire licence expiry" type="date" value={profile.pcoExpiry || ""} onChange={e => update("pcoExpiry", e.target.value)} />
+        <Input label="DBS renewal date" type="date" value={profile.dbsExpiry || ""} onChange={e => update("dbsExpiry", e.target.value)} />
+        <Input label="Medical renewal date" type="date" value={profile.medicalExpiry || ""} onChange={e => update("medicalExpiry", e.target.value)} />
+        <Input label="MOT expiry" type="date" value={profile.motExpiry || ""} onChange={e => update("motExpiry", e.target.value)} />
+        <Input label="Insurance renewal date" type="date" value={profile.insuranceExpiry || ""} onChange={e => update("insuranceExpiry", e.target.value)} />
+      </div>
+
+      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "12px", padding: "14px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>
+        ✓ Profile saved automatically as you type
+      </div>
+    </div>
+  );
+}
+
+// ─── Documents Page ───────────────────────────────────────────────────────────
+function DocumentsPage() {
+  return (
+    <div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "24px", marginBottom: "16px", textAlign: "center" }}>
+        <div style={{ fontSize: "40px", marginBottom: "12px" }}>📁</div>
+        <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, marginBottom: "8px", fontFamily: FONT }}>Document Vault</div>
+        <div style={{ fontSize: "13px", color: C.sub, lineHeight: "1.7", fontFamily: FONT }}>
+          Store your private hire licence, insurance certificate, MOT, DBS and other important documents here. Upload once, access anywhere.
+        </div>
+      </div>
+      <div style={{ background: C.orangeBg, border: `1px solid #FED7AA`, borderRadius: "12px", padding: "14px", fontSize: "13px", color: C.orange, fontFamily: FONT, fontWeight: "600", textAlign: "center" }}>
+        🚧 Coming soon — document upload will be available in the next update
+      </div>
+    </div>
+  );
+}
+
 // ─── Operators Manager ────────────────────────────────────────────────────────
 const OP_COLORS = ["#16A34A", "#2563EB", "#EA580C", "#DC2626", "#9333EA", "#0891B2", "#D97706", "#BE185D", "#059669", "#7C3AED"];
 const COMMISSION_MODELS = [
@@ -1763,19 +1928,12 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
 
   return (
     <div>
-      <TabIntro storageKey="intro_expenses" icon="🧾" title="Costs Tab" body="Log all your business expenses here — fuel fill-ups, car washes, insurance, TfL licence renewals and anything else. These are deducted from your earnings in the P&L on the Home tab." />
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px", marginBottom: "16px" }}>
-        <SectionTitle>Settings</SectionTitle>
-        <Field label="Fuel cost per mile (£)" hint="Diesel avg ≈ £0.16–0.20/mi" tooltip="Enter how much fuel costs you per mile. Divide your last fill-up cost by miles driven since previous fill-up.">
-          <input style={inputStyle} type="number" step="0.01" value={settings.fuelCostPerMile} onChange={e => setSettings(s => ({ ...s, fuelCostPerMile: parseFloat(e.target.value) || 0 }))} />
-        </Field>
-        <Field label="Card machine fee %" hint="Default fee used when logging card payments" tooltip="Your card reader's standard transaction fee percentage. Used as the default when you log a card payment job.">
-          <input style={inputStyle} type="number" step="0.01" placeholder="e.g. 1.69" value={settings.cardFeePct || ""} onChange={e => setSettings(s => ({ ...s, cardFeePct: parseFloat(e.target.value) || 0 }))} />
-        </Field>
+      <TabIntro storageKey="intro_expenses" icon="🧾" title="Costs Tab" body="Log all your business expenses here — fuel fill-ups, car washes, airport charges, TfL licence renewals and anything else. These are deducted from your earnings in the P&L on the Home tab." />
+
+      <div style={{ background: C.light, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "14px", fontSize: "12px", color: C.sub, fontFamily: FONT }}>
+        ⚙️ Fuel cost, card fee and operators are now in the <strong style={{ color: C.text }}>☰ menu</strong> → Settings / My Operators
       </div>
 
-      {/* My Operators */}
-      <OperatorsManager settings={settings} setSettings={setSettings} />
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", background: C.surface, borderRadius: "12px", padding: "4px", border: `1px solid ${C.border}` }}>
         {[{ id: "expense", label: "Add Expense" }, { id: "fuel", label: "Log Fuel" }, { id: "history", label: "History" }].map(t => (
           <button key={t.id} onClick={() => setSubTab(t.id)} style={{ flex: 1, padding: "9px 4px", background: subTab === t.id ? C.accent : "transparent", color: subTab === t.id ? "#fff" : C.sub, border: "none", borderRadius: "9px", fontSize: "11px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>{t.label}</button>
