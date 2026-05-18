@@ -1700,6 +1700,12 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
   const [expAdded, setExpAdded] = useState(false);
   const [fuelAdded, setFuelAdded] = useState(false);
   const [quickAdded, setQuickAdded] = useState(null);
+  const [pendingCharge, setPendingCharge] = useState(null); // { id, label, amount }
+  const [pendingAmt, setPendingAmt] = useState("");
+  const [showCustomCharge, setShowCustomCharge] = useState(false);
+  const [customCharge, setCustomCharge] = useState({ label: "", amount: "" });
+
+  const savedCustomCharges = settings.customCharges || [];
 
   function addExpense() {
     if (!expForm.amount) return;
@@ -1708,9 +1714,27 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
     setExpAdded(true); setTimeout(() => setExpAdded(false), 2000);
   }
 
-  function quickAddCharge(charge) {
-    setExpenses(prev => [{ id: Date.now(), date: today(), category: charge.label, amount: charge.amount, notes: charge.note || "" }, ...prev]);
-    setQuickAdded(charge.id); setTimeout(() => setQuickAdded(null), 2000);
+  function tapCharge(charge) {
+    setPendingCharge(charge);
+    setPendingAmt(String(charge.amount));
+  }
+
+  function confirmCharge() {
+    if (!pendingCharge || !pendingAmt) return;
+    setExpenses(prev => [{ id: Date.now(), date: today(), category: pendingCharge.label, amount: parseFloat(pendingAmt), notes: pendingCharge.note || "" }, ...prev]);
+    setQuickAdded(pendingCharge.id); setPendingCharge(null); setPendingAmt("");
+    setTimeout(() => setQuickAdded(null), 2000);
+  }
+
+  function saveCustomCharge() {
+    if (!customCharge.label || !customCharge.amount) return;
+    const updated = [...savedCustomCharges, { id: "custom_" + Date.now(), label: customCharge.label, amount: parseFloat(customCharge.amount), group: "custom" }];
+    setSettings(s => ({ ...s, customCharges: updated }));
+    setCustomCharge({ label: "", amount: "" }); setShowCustomCharge(false);
+  }
+
+  function deleteCustomCharge(id) {
+    setSettings(s => ({ ...s, customCharges: savedCustomCharges.filter(c => c.id !== id) }));
   }
   function addFuel() {
     if (!fuelForm.cost) return;
@@ -1749,19 +1773,41 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           <div style={{ marginBottom: "18px" }}>
             <div style={{ fontSize: "12px", fontWeight: "700", color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px", fontFamily: FONT }}>Quick Add — Airport & Road Charges</div>
 
+            {/* Pending confirmation */}
+            {pendingCharge && (
+              <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "12px", padding: "14px", marginBottom: "12px" }}>
+                <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, marginBottom: "10px", fontFamily: FONT }}>{pendingCharge.label}</div>
+                <div style={{ fontSize: "12px", color: C.sub, marginBottom: "8px", fontFamily: FONT }}>Edit the amount if needed, then confirm:</div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontFamily: FONT, fontSize: "15px" }}>£</span>
+                    <input
+                      style={{ ...inputStyle, paddingLeft: "24px" }}
+                      type="number"
+                      step="0.01"
+                      value={pendingAmt}
+                      onChange={e => setPendingAmt(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <button onClick={confirmCharge} disabled={!pendingAmt} style={{ padding: "12px 18px", background: C.green, border: "none", borderRadius: "10px", color: "#fff", fontWeight: "700", fontSize: "14px", fontFamily: FONT, cursor: "pointer" }}>✓ Add</button>
+                  <button onClick={() => { setPendingCharge(null); setPendingAmt(""); }} style={{ padding: "12px 14px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.sub, fontWeight: "600", fontSize: "14px", fontFamily: FONT, cursor: "pointer" }}>✕</button>
+                </div>
+              </div>
+            )}
+
             {/* Drop-offs */}
             <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>✈ Drop-offs</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
               {PRESET_CHARGES.filter(c => c.group === "dropoff").map(c => (
-                <button key={c.id} onClick={() => quickAddCharge(c)} style={{
+                <button key={c.id} onClick={() => tapCharge(c)} style={{
                   padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
-                  background: quickAdded === c.id ? C.greenBg : C.light,
-                  border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
-                  color: quickAdded === c.id ? C.green : C.text,
+                  background: quickAdded === c.id ? C.greenBg : pendingCharge?.id === c.id ? C.blueBg : C.light,
+                  border: `1.5px solid ${quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.border}`,
+                  color: quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.text,
                   fontSize: "12px", fontWeight: "600", fontFamily: FONT,
-                  display: "flex", alignItems: "center", gap: "6px",
                 }}>
-                  {quickAdded === c.id ? "✓" : ""}{c.label.replace(" Drop-off", "").replace(" Express Set Down", "")} <span style={{ color: C.sub, fontWeight: "500" }}>£{c.amount.toFixed(2)}</span>
+                  {quickAdded === c.id ? "✓ " : ""}{c.label.replace(" Drop-off", "").replace(" Express Set Down", "")} <span style={{ opacity: 0.6 }}>£{c.amount.toFixed(2)}</span>
                 </button>
               ))}
             </div>
@@ -1770,38 +1816,74 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
             <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🅿 Pick-up Parking</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
               {PRESET_CHARGES.filter(c => c.group === "pickup").map(c => (
-                <button key={c.id} onClick={() => quickAddCharge(c)} style={{
+                <button key={c.id} onClick={() => tapCharge(c)} style={{
                   padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
-                  background: quickAdded === c.id ? C.greenBg : C.light,
-                  border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
-                  color: quickAdded === c.id ? C.green : C.text,
+                  background: quickAdded === c.id ? C.greenBg : pendingCharge?.id === c.id ? C.blueBg : C.light,
+                  border: `1.5px solid ${quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.border}`,
+                  color: quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.text,
                   fontSize: "12px", fontWeight: "600", fontFamily: FONT,
-                  display: "flex", alignItems: "center", gap: "6px",
                 }}>
-                  {quickAdded === c.id ? "✓" : ""}{c.label.replace(" Pick-up Parking", "").replace(" Airport", "")} <span style={{ color: C.sub, fontWeight: "500" }}>£{c.amount.toFixed(2)}</span>
+                  {quickAdded === c.id ? "✓ " : ""}{c.label.replace(" Pick-up Parking", "").replace(" Airport", "")} <span style={{ opacity: 0.6 }}>£{c.amount.toFixed(2)}</span>
                 </button>
               ))}
             </div>
 
             {/* Road charges */}
             <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🛣 Road Charges</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "4px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
               {PRESET_CHARGES.filter(c => c.group === "road").map(c => (
-                <button key={c.id} onClick={() => quickAddCharge(c)} style={{
+                <button key={c.id} onClick={() => tapCharge(c)} style={{
                   padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
-                  background: quickAdded === c.id ? C.greenBg : C.light,
-                  border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
-                  color: quickAdded === c.id ? C.green : C.text,
+                  background: quickAdded === c.id ? C.greenBg : pendingCharge?.id === c.id ? C.blueBg : C.light,
+                  border: `1.5px solid ${quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.border}`,
+                  color: quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.text,
                   fontSize: "12px", fontWeight: "600", fontFamily: FONT,
-                  display: "flex", alignItems: "center", gap: "6px",
                 }}>
-                  {quickAdded === c.id ? "✓" : ""}{c.label} <span style={{ color: C.sub, fontWeight: "500" }}>£{c.amount.toFixed(2)}</span>
+                  {quickAdded === c.id ? "✓ " : ""}{c.label} <span style={{ opacity: 0.6 }}>£{c.amount.toFixed(2)}</span>
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: "11px", color: C.muted, marginTop: "8px", fontFamily: FONT }}>
-              Tap any charge to add it instantly. All amounts are logged to today's date and shown in History.
-            </div>
+
+            {/* My custom charges */}
+            {savedCustomCharges.length > 0 && (
+              <>
+                <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>⭐ My Saved Charges</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+                  {savedCustomCharges.map(c => (
+                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                      <button onClick={() => tapCharge(c)} style={{
+                        padding: "7px 12px", borderRadius: "20px 0 0 20px", cursor: "pointer",
+                        background: quickAdded === c.id ? C.greenBg : C.light,
+                        border: `1.5px solid ${quickAdded === c.id ? C.green : C.border}`,
+                        borderRight: "none",
+                        color: quickAdded === c.id ? C.green : C.text,
+                        fontSize: "12px", fontWeight: "600", fontFamily: FONT,
+                      }}>
+                        {quickAdded === c.id ? "✓ " : ""}{c.label} <span style={{ opacity: 0.6 }}>£{Number(c.amount).toFixed(2)}</span>
+                      </button>
+                      <button onClick={() => deleteCustomCharge(c.id)} style={{ padding: "7px 8px", borderRadius: "0 20px 20px 0", cursor: "pointer", background: C.light, border: `1.5px solid ${C.border}`, color: C.muted, fontSize: "11px", fontFamily: FONT }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Add custom charge */}
+            {!showCustomCharge ? (
+              <button onClick={() => setShowCustomCharge(true)} style={{ background: "none", border: `1px dashed ${C.border}`, borderRadius: "20px", padding: "6px 14px", color: C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
+                + Save a custom charge
+              </button>
+            ) : (
+              <div style={{ background: C.light, borderRadius: "12px", padding: "12px", marginTop: "8px" }}>
+                <div style={{ fontSize: "12px", fontWeight: "600", color: C.text, marginBottom: "8px", fontFamily: FONT }}>Save a custom charge</div>
+                <input style={{ ...inputStyle, marginBottom: "8px" }} type="text" placeholder="Label (e.g. Bluewater Parking)" value={customCharge.label} onChange={e => setCustomCharge(f => ({ ...f, label: e.target.value }))} />
+                <input style={{ ...inputStyle, marginBottom: "8px" }} type="number" step="0.01" placeholder="Default amount (£)" value={customCharge.amount} onChange={e => setCustomCharge(f => ({ ...f, amount: e.target.value }))} />
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => { setShowCustomCharge(false); setCustomCharge({ label: "", amount: "" }); }} style={{ flex: 1, padding: "10px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.sub, fontSize: "13px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={saveCustomCharge} disabled={!customCharge.label || !customCharge.amount} style={{ flex: 1, padding: "10px", background: C.accent, border: "none", borderRadius: "10px", color: "#fff", fontSize: "13px", fontWeight: "700", fontFamily: FONT, cursor: "pointer" }}>Save</button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ height: "1px", background: C.border, marginBottom: "16px" }} />
