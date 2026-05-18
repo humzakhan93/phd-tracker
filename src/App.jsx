@@ -1849,18 +1849,30 @@ function SettingsPage({ settings, setSettings }) {
 
 // ─── Charges Setup Wizard ─────────────────────────────────────────────────────
 function ChargesSetupWizard({ settings, setSettings, onDone }) {
-  const [step, setStep] = useState(0); // 0=dropoff, 1=pickup, 2=road, 3=done
-  const saved = settings.savedChargeIds || [];
+  const [step, setStep] = useState(0);
 
-  function toggle(id) {
-    const updated = saved.includes(id) ? saved.filter(x => x !== id) : [...saved, id];
-    setSettings(s => ({ ...s, savedChargeIds: updated }));
+  // savedCharges is array of { id, label, amount } — amount is editable
+  const savedCharges = settings.savedCharges || [];
+
+  function isSelected(id) { return savedCharges.some(c => c.id === id); }
+
+  function toggleCharge(charge) {
+    const already = savedCharges.some(c => c.id === charge.id);
+    if (already) {
+      setSettings(s => ({ ...s, savedCharges: (s.savedCharges || []).filter(c => c.id !== charge.id) }));
+    } else {
+      setSettings(s => ({ ...s, savedCharges: [...(s.savedCharges || []), { id: charge.id, label: charge.label, amount: charge.amount, group: charge.id.includes("pickup") ? "pickup" : charge.id.includes("drop") ? "dropoff" : "road" }] }));
+    }
+  }
+
+  function updateAmount(id, val) {
+    setSettings(s => ({ ...s, savedCharges: (s.savedCharges || []).map(c => c.id === id ? { ...c, amount: parseFloat(val) || c.amount } : c) }));
   }
 
   const steps = [
-    { key: "airports_dropoff", title: "✈️ Airport Drop-offs", desc: "Select the airports you regularly drop passengers at. These will appear in your Quick Add charges." },
-    { key: "airports_pickup", title: "🅿️ Airport Pick-ups", desc: "Select airports where you pick up passengers and pay for parking." },
-    { key: "road_charges", title: "🛣️ Road & Congestion Charges", desc: "Select any road charges, tolls or clean air zones you regularly pay." },
+    { key: "airports_dropoff", title: "✈️ Airport Drop-offs", desc: "Select airports you regularly drop passengers at. Tap to select, then edit the amount if needed." },
+    { key: "airports_pickup", title: "🅿️ Airport Pick-ups", desc: "Select airports where you park to collect passengers." },
+    { key: "road_charges", title: "🛣️ Road & Congestion Charges", desc: "Select road charges, tolls or clean air zones you regularly pay." },
   ];
 
   if (step >= steps.length) {
@@ -1868,7 +1880,10 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
       <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "20px", textAlign: "center" }}>
         <div style={{ fontSize: "32px", marginBottom: "8px" }}>✓</div>
         <div style={{ fontSize: "16px", fontWeight: "800", color: C.green, marginBottom: "6px", fontFamily: FONT }}>Charges set up!</div>
-        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>Your selected charges will appear in Quick Add when logging expenses. You can always add more from the Costs tab.</div>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "6px", fontFamily: FONT }}>
+          {savedCharges.length} charge{savedCharges.length !== 1 ? "s" : ""} saved. These appear in Quick Add when logging expenses.
+        </div>
+        <div style={{ fontSize: "12px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>You can always add more or adjust amounts from the Costs tab.</div>
         <Btn onClick={onDone} color={C.green}>Done</Btn>
       </div>
     );
@@ -1879,34 +1894,74 @@ function ChargesSetupWizard({ settings, setSettings, onDone }) {
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+      {/* Progress bar */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
         {steps.map((s, i) => <div key={i} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= step ? C.accent : C.border }} />)}
       </div>
+
       <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>{current.title}</div>
-      <div style={{ fontSize: "13px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>{current.desc}</div>
-      <div style={{ display: "flex", flex: "column", gap: "8px", marginBottom: "16px" }}>
-        {charges.map(c => (
-          <button key={c.id} onClick={() => toggle(c.id)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: "12px",
-            padding: "12px 14px", marginBottom: "6px",
-            background: saved.includes(c.id) ? C.greenBg : C.light,
-            border: `2px solid ${saved.includes(c.id) ? C.green : C.border}`,
-            borderRadius: "12px", cursor: "pointer", textAlign: "left",
-          }}>
-            <div style={{ width: "22px", height: "22px", borderRadius: "6px", background: saved.includes(c.id) ? C.green : C.border, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              {saved.includes(c.id) && <span style={{ color: "#fff", fontSize: "12px", fontWeight: "700" }}>✓</span>}
+      <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>{current.desc}</div>
+
+      {/* Charge list — 1 per row, clear layout */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+        {charges.map(c => {
+          const selected = isSelected(c.id);
+          const saved = savedCharges.find(x => x.id === c.id);
+          return (
+            <div key={c.id} style={{
+              borderRadius: "12px", overflow: "hidden",
+              border: `2px solid ${selected ? C.green : C.border}`,
+              background: selected ? C.greenBg : C.light,
+            }}>
+              {/* Tap row to select/deselect */}
+              <button onClick={() => toggleCharge(c)} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: "12px",
+                padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left",
+              }}>
+                <div style={{ width: "22px", height: "22px", borderRadius: "6px", flexShrink: 0, background: selected ? C.green : C.border, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {selected && <span style={{ color: "#fff", fontSize: "13px", fontWeight: "700" }}>✓</span>}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "13px", fontWeight: "700", color: selected ? C.green : C.text, fontFamily: FONT }}>{c.label}</div>
+                  {c.note && <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT, marginTop: "2px" }}>{c.note}</div>}
+                </div>
+                <div style={{ fontSize: "15px", fontWeight: "800", color: selected ? C.green : C.sub, fontFamily: FONT, flexShrink: 0 }}>
+                  £{(saved?.amount ?? c.amount).toFixed(2)}
+                </div>
+              </button>
+
+              {/* Editable amount — shown when selected */}
+              {selected && (
+                <div style={{ padding: "0 14px 12px", display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{ fontSize: "12px", color: C.sub, fontFamily: FONT, flexShrink: 0 }}>Edit amount:</div>
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: "14px", fontFamily: FONT }}>£</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={saved?.amount ?? c.amount}
+                      onChange={e => updateAmount(c.id, e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ ...inputStyle, paddingLeft: "26px", padding: "8px 10px 8px 26px", fontSize: "14px", fontWeight: "700" }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, fontFamily: FONT }}>{c.label}</div>
-              {c.note && <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>{c.note}</div>}
-            </div>
-            <div style={{ fontSize: "14px", fontWeight: "700", color: saved.includes(c.id) ? C.green : C.sub, fontFamily: FONT }}>£{c.amount.toFixed(2)}</div>
-          </button>
-        ))}
+          );
+        })}
       </div>
+
+      {/* Navigation */}
       <div style={{ display: "flex", gap: "10px" }}>
-        {step > 0 && <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>}
-        <div style={{ flex: 2 }}><Btn onClick={() => setStep(s => s + 1)} color={C.accent}>{step < steps.length - 1 ? "Next →" : "Finish →"}</Btn></div>
+        {step > 0 && (
+          <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>
+        )}
+        <div style={{ flex: 2 }}>
+          <Btn onClick={() => setStep(s => s + 1)} color={C.accent}>
+            {step < steps.length - 1 ? `Next → (${savedCharges.filter(c => UK_CHARGES[current.key]?.some(x => x.id === c.id)).length} selected)` : "Finish →"}
+          </Btn>
+        </div>
       </div>
     </div>
   );
@@ -1969,23 +2024,29 @@ function ProfilePage({ settings, setSettings }) {
         <div style={{ fontSize: "13px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>
           Select the airport and road charges you regularly encounter. These appear in Quick Add when logging expenses.
         </div>
-        {!(settings.savedChargeIds?.length > 0) ? (
+        {!(settings.savedCharges?.length > 0) ? (
           <ChargesSetupWizard settings={settings} setSettings={setSettings} onDone={() => {}} />
         ) : (
           <>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
-              {(settings.savedChargeIds || []).map(id => {
-                const charge = [...UK_CHARGES.airports_dropoff, ...UK_CHARGES.airports_pickup, ...UK_CHARGES.road_charges].find(c => c.id === id);
-                if (!charge) return null;
-                return (
-                  <div key={id} style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 12px", fontSize: "12px", color: C.green, fontWeight: "600", fontFamily: FONT, display: "flex", alignItems: "center", gap: "6px" }}>
-                    {charge.label} · £{charge.amount.toFixed(2)}
-                    <button onClick={() => setSettings(s => ({ ...s, savedChargeIds: (s.savedChargeIds || []).filter(x => x !== id) }))} style={{ background: "none", border: "none", color: C.green, cursor: "pointer", fontSize: "14px", padding: "0", lineHeight: 1 }}>×</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
+              {(settings.savedCharges || []).map(c => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "10px" }}>
+                  <div style={{ flex: 1, fontSize: "13px", fontWeight: "600", color: C.green, fontFamily: FONT }}>{c.label}</div>
+                  <div style={{ position: "relative" }}>
+                    <span style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: "13px" }}>£</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={c.amount}
+                      onChange={e => setSettings(s => ({ ...s, savedCharges: (s.savedCharges || []).map(x => x.id === c.id ? { ...x, amount: parseFloat(e.target.value) || x.amount } : x) }))}
+                      style={{ ...inputStyle, width: "80px", padding: "6px 8px 6px 22px", fontSize: "13px", fontWeight: "700" }}
+                    />
                   </div>
-                );
-              })}
+                  <button onClick={() => setSettings(s => ({ ...s, savedCharges: (s.savedCharges || []).filter(x => x.id !== c.id) }))} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "18px", padding: "0" }}>✕</button>
+                </div>
+              ))}
             </div>
-            <button onClick={() => setSettings(s => ({ ...s, savedChargeIds: [] }))} style={{ background: "none", border: `1px dashed ${C.border}`, borderRadius: "8px", padding: "8px 14px", color: C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
+            <button onClick={() => setSettings(s => ({ ...s, savedCharges: [] }))} style={{ background: "none", border: `1px dashed ${C.border}`, borderRadius: "8px", padding: "8px 14px", color: C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
               ↺ Redo charges setup
             </button>
           </>
@@ -2262,14 +2323,14 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
 
             {/* Build charge list from saved profile charges, fall back to PRESET_CHARGES */}
             {(() => {
-              const savedIds = settings.savedChargeIds;
+              const savedCharges = settings.savedCharges;
               const allCharges = [...UK_CHARGES.airports_dropoff, ...UK_CHARGES.airports_pickup, ...UK_CHARGES.road_charges];
-              const chargeList = savedIds?.length > 0
-                ? savedIds.map(id => allCharges.find(c => c.id === id)).filter(Boolean)
+              const chargeList = savedCharges?.length > 0
+                ? savedCharges
                 : PRESET_CHARGES;
 
-              const dropoffs = chargeList.filter(c => UK_CHARGES.airports_dropoff.find(a => a.id === c.id));
-              const pickups = chargeList.filter(c => UK_CHARGES.airports_pickup.find(a => a.id === c.id));
+              const dropoffs = chargeList.filter(c => UK_CHARGES.airports_dropoff.find(a => a.id === c.id) || c.group === "dropoff");
+              const pickups = chargeList.filter(c => UK_CHARGES.airports_pickup.find(a => a.id === c.id) || c.group === "pickup");
               const roads = chargeList.filter(c => UK_CHARGES.road_charges.find(a => a.id === c.id) || c.group === "road");
 
               const ChargeBtn = ({ c }) => (
@@ -2321,7 +2382,7 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
                     </div>
                   </>}
 
-                  {!savedIds?.length && (
+                  {!savedCharges?.length && (
                     <div style={{ fontSize: "11px", color: C.muted, marginBottom: "8px", fontFamily: FONT }}>
                       💡 Set up your personal charges in <strong>☰ → My Profile → My Charges</strong> to see only the ones relevant to you
                     </div>
