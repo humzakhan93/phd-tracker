@@ -17,25 +17,66 @@ const HMRC_RATE_2 = 0.25;
 const HMRC_THRESHOLD = 10000;
 const TAX_YEAR_START = "2025-04-06";
 
-// Grouped preset charges — used in End Shift, Fare Check, and Costs tab
+// ─── Full UK charges library ──────────────────────────────────────────────────
+// Grouped for the charges setup wizard and Quick Add in Costs tab
+const UK_CHARGES = {
+  airports_dropoff: [
+    { id: "heathrow_drop", label: "Heathrow Drop-off", amount: 7.00, note: "10 mins max, ANPR" },
+    { id: "gatwick_drop", label: "Gatwick Drop-off", amount: 10.00, note: "10 mins max, ANPR" },
+    { id: "stansted_drop", label: "Stansted Drop-off", amount: 10.00, note: "15 mins max, ANPR" },
+    { id: "luton_drop", label: "Luton Drop-off", amount: 7.00, note: "10 mins max, ANPR" },
+    { id: "london_city_drop", label: "London City Drop-off", amount: 8.00, note: "5 mins max, ANPR" },
+    { id: "southend_drop", label: "Southend Drop-off", amount: 8.00, note: "10 mins max" },
+    { id: "manchester_drop", label: "Manchester Drop-off", amount: 6.00, note: "10 mins, ANPR" },
+    { id: "birmingham_drop", label: "Birmingham Drop-off", amount: 5.00, note: "FREE first 10 mins, then £5" },
+    { id: "bristol_drop", label: "Bristol Drop-off", amount: 8.50, note: "10 mins max" },
+    { id: "aberdeen_drop", label: "Aberdeen Drop-off", amount: 5.50, note: "15 mins max" },
+    { id: "edinburgh_drop", label: "Edinburgh Drop-off", amount: 3.00, note: "Approx — check current rate" },
+    { id: "glasgow_drop", label: "Glasgow Drop-off", amount: 3.00, note: "Approx — check current rate" },
+    { id: "leeds_drop", label: "Leeds Bradford Drop-off", amount: 5.00, note: "Approx — check current rate" },
+    { id: "liverpool_drop", label: "Liverpool John Lennon Drop-off", amount: 4.00, note: "Approx — check current rate" },
+  ],
+  airports_pickup: [
+    { id: "heathrow_pickup", label: "Heathrow Pick-up Parking", amount: 8.00, note: "Up to 30 mins short stay" },
+    { id: "gatwick_pickup", label: "Gatwick Pick-up Parking", amount: 8.00, note: "Up to 30 mins short stay" },
+    { id: "stansted_pickup", label: "Stansted Pick-up Parking", amount: 13.00, note: "Up to 30 mins short stay" },
+    { id: "luton_pickup", label: "Luton Pick-up Parking", amount: 15.00, note: "Up to 30 mins terminal car park" },
+    { id: "london_city_pickup", label: "London City Pick-up Parking", amount: 10.00, note: "Up to 20 mins" },
+    { id: "manchester_pickup", label: "Manchester Pick-up Parking", amount: 6.00, note: "Up to 30 mins short stay" },
+    { id: "birmingham_pickup", label: "Birmingham Pick-up Parking", amount: 4.00, note: "Up to 30 mins" },
+  ],
+  road_charges: [
+    { id: "ulez", label: "ULEZ (London)", amount: 12.50, note: "Electric vehicles exempt" },
+    { id: "congestion", label: "Congestion Charge (London)", amount: 18.00, note: "EVs £13.50 with Auto Pay" },
+    { id: "dart", label: "Dart Charge (Dartford)", amount: 2.50, note: "Pay by midnight next day" },
+    { id: "m6_peak", label: "M6 Toll (peak)", amount: 7.90, note: "Mon–Fri 6am–8pm" },
+    { id: "m6_offpeak", label: "M6 Toll (off-peak)", amount: 6.80, note: "Evenings, weekends, bank holidays" },
+    { id: "mersey", label: "Mersey Tunnel", amount: 2.10, note: "Per direction" },
+    { id: "tyne", label: "Tyne Tunnel", amount: 2.60, note: "From May 2026" },
+    { id: "tamar", label: "Tamar Bridge", amount: 2.60, note: "Westbound only (Plymouth to Cornwall)" },
+    { id: "humber", label: "Humber Bridge", amount: 1.50, note: "Eastbound only" },
+  ],
+};
+
+// Flat list used in End Shift, Fare Check — built from driver's saved charges
+// Falls back to London-focused defaults if driver hasn't set up charges
 const PRESET_CHARGES = [
-  // ── Drop-offs ──
-  { id: "heathrow_drop", label: "Heathrow Drop-off", amount: 7.00, group: "dropoff", note: "Paid via ANPR by midnight next day" },
-  { id: "gatwick_drop", label: "Gatwick Drop-off", amount: 10.00, group: "dropoff" },
-  { id: "stansted_drop", label: "Stansted Express Set Down", amount: 10.00, group: "dropoff", note: "Up to 15 mins" },
-  { id: "luton_drop", label: "Luton Drop-off", amount: 7.00, group: "dropoff" },
+  { id: "heathrow_drop", label: "Heathrow Drop-off", amount: 7.00, group: "dropoff", note: "ANPR, pay by midnight next day" },
+  { id: "gatwick_drop", label: "Gatwick Drop-off", amount: 10.00, group: "dropoff", note: "ANPR, pay by midnight next day" },
+  { id: "stansted_drop", label: "Stansted Drop-off", amount: 10.00, group: "dropoff", note: "ANPR, pay by midnight next day" },
+  { id: "luton_drop", label: "Luton Drop-off", amount: 7.00, group: "dropoff", note: "ANPR, pay by midnight next day" },
   { id: "london_city_drop", label: "London City Drop-off", amount: 8.00, group: "dropoff" },
-  // ── Pick-ups (terminal parking) ──
-  { id: "heathrow_pickup", label: "Heathrow Pick-up Parking", amount: 8.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
-  { id: "gatwick_pickup", label: "Gatwick Pick-up Parking", amount: 8.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
-  { id: "stansted_pickup", label: "Stansted Pick-up Parking", amount: 13.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
-  { id: "luton_pickup", label: "Luton Pick-up Parking", amount: 15.00, group: "pickup", note: "Up to 30 mins, editable if longer" },
-  { id: "london_city_pickup", label: "London City Pick-up Parking", amount: 10.00, group: "pickup", note: "Up to 20 mins, editable if longer" },
-  // ── Road charges ──
+  { id: "heathrow_pickup", label: "Heathrow Pick-up Parking", amount: 8.00, group: "pickup", note: "Up to 30 mins" },
+  { id: "gatwick_pickup", label: "Gatwick Pick-up Parking", amount: 8.00, group: "pickup", note: "Up to 30 mins" },
+  { id: "stansted_pickup", label: "Stansted Pick-up Parking", amount: 13.00, group: "pickup", note: "Up to 30 mins" },
+  { id: "luton_pickup", label: "Luton Pick-up Parking", amount: 15.00, group: "pickup", note: "Up to 30 mins" },
+  { id: "london_city_pickup", label: "London City Pick-up Parking", amount: 10.00, group: "pickup", note: "Up to 20 mins" },
   { id: "ulez", label: "ULEZ Charge", amount: 12.50, group: "road", note: "Electric vehicles exempt" },
-  { id: "congestion", label: "Congestion Charge", amount: 18.00, group: "road", note: "EVs pay £13.50 with Auto Pay" },
-  { id: "dart", label: "Dart Charge", amount: 3.50, group: "road" },
-  { id: "m6", label: "M6 Toll (full route)", amount: 11.60, group: "road" },
+  { id: "congestion", label: "Congestion Charge", amount: 18.00, group: "road", note: "EVs £13.50 with Auto Pay" },
+  { id: "dart", label: "Dart Charge", amount: 2.50, group: "road" },
+  { id: "m6_peak", label: "M6 Toll (peak)", amount: 7.90, group: "road" },
+  { id: "mersey", label: "Mersey Tunnel", amount: 2.10, group: "road" },
+  { id: "tyne", label: "Tyne Tunnel", amount: 2.60, group: "road" },
 ];
 
 // ─── Draft autosave keys ──────────────────────────────────────────────────────
@@ -1806,6 +1847,71 @@ function SettingsPage({ settings, setSettings }) {
   );
 }
 
+// ─── Charges Setup Wizard ─────────────────────────────────────────────────────
+function ChargesSetupWizard({ settings, setSettings, onDone }) {
+  const [step, setStep] = useState(0); // 0=dropoff, 1=pickup, 2=road, 3=done
+  const saved = settings.savedChargeIds || [];
+
+  function toggle(id) {
+    const updated = saved.includes(id) ? saved.filter(x => x !== id) : [...saved, id];
+    setSettings(s => ({ ...s, savedChargeIds: updated }));
+  }
+
+  const steps = [
+    { key: "airports_dropoff", title: "✈️ Airport Drop-offs", desc: "Select the airports you regularly drop passengers at. These will appear in your Quick Add charges." },
+    { key: "airports_pickup", title: "🅿️ Airport Pick-ups", desc: "Select airports where you pick up passengers and pay for parking." },
+    { key: "road_charges", title: "🛣️ Road & Congestion Charges", desc: "Select any road charges, tolls or clean air zones you regularly pay." },
+  ];
+
+  if (step >= steps.length) {
+    return (
+      <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "14px", padding: "20px", textAlign: "center" }}>
+        <div style={{ fontSize: "32px", marginBottom: "8px" }}>✓</div>
+        <div style={{ fontSize: "16px", fontWeight: "800", color: C.green, marginBottom: "6px", fontFamily: FONT }}>Charges set up!</div>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "16px", fontFamily: FONT }}>Your selected charges will appear in Quick Add when logging expenses. You can always add more from the Costs tab.</div>
+        <Btn onClick={onDone} color={C.green}>Done</Btn>
+      </div>
+    );
+  }
+
+  const current = steps[step];
+  const charges = UK_CHARGES[current.key];
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+      <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
+        {steps.map((s, i) => <div key={i} style={{ flex: 1, height: "4px", borderRadius: "2px", background: i <= step ? C.accent : C.border }} />)}
+      </div>
+      <div style={{ fontSize: "16px", fontWeight: "800", color: C.text, marginBottom: "4px", fontFamily: FONT }}>{current.title}</div>
+      <div style={{ fontSize: "13px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>{current.desc}</div>
+      <div style={{ display: "flex", flex: "column", gap: "8px", marginBottom: "16px" }}>
+        {charges.map(c => (
+          <button key={c.id} onClick={() => toggle(c.id)} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: "12px",
+            padding: "12px 14px", marginBottom: "6px",
+            background: saved.includes(c.id) ? C.greenBg : C.light,
+            border: `2px solid ${saved.includes(c.id) ? C.green : C.border}`,
+            borderRadius: "12px", cursor: "pointer", textAlign: "left",
+          }}>
+            <div style={{ width: "22px", height: "22px", borderRadius: "6px", background: saved.includes(c.id) ? C.green : C.border, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {saved.includes(c.id) && <span style={{ color: "#fff", fontSize: "12px", fontWeight: "700" }}>✓</span>}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, fontFamily: FONT }}>{c.label}</div>
+              {c.note && <div style={{ fontSize: "11px", color: C.sub, fontFamily: FONT }}>{c.note}</div>}
+            </div>
+            <div style={{ fontSize: "14px", fontWeight: "700", color: saved.includes(c.id) ? C.green : C.sub, fontFamily: FONT }}>£{c.amount.toFixed(2)}</div>
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "10px" }}>
+        {step > 0 && <button onClick={() => setStep(s => s - 1)} style={{ flex: 1, padding: "13px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.sub, fontSize: "14px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>← Back</button>}
+        <div style={{ flex: 2 }}><Btn onClick={() => setStep(s => s + 1)} color={C.accent}>{step < steps.length - 1 ? "Next →" : "Finish →"}</Btn></div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Profile Page ─────────────────────────────────────────────────────────────
 function ProfilePage({ settings, setSettings }) {
   const profile = settings.profile || {};
@@ -1856,6 +1962,34 @@ function ProfilePage({ settings, setSettings }) {
         <Input label="Medical renewal date" type="date" value={profile.medicalExpiry || ""} onChange={e => update("medicalExpiry", e.target.value)} />
         <Input label="MOT expiry" type="date" value={profile.motExpiry || ""} onChange={e => update("motExpiry", e.target.value)} />
         <Input label="Insurance renewal date" type="date" value={profile.insuranceExpiry || ""} onChange={e => update("insuranceExpiry", e.target.value)} />
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
+        <SectionTitle>My Charges & Tolls</SectionTitle>
+        <div style={{ fontSize: "13px", color: C.sub, marginBottom: "14px", fontFamily: FONT }}>
+          Select the airport and road charges you regularly encounter. These appear in Quick Add when logging expenses.
+        </div>
+        {!(settings.savedChargeIds?.length > 0) ? (
+          <ChargesSetupWizard settings={settings} setSettings={setSettings} onDone={() => {}} />
+        ) : (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+              {(settings.savedChargeIds || []).map(id => {
+                const charge = [...UK_CHARGES.airports_dropoff, ...UK_CHARGES.airports_pickup, ...UK_CHARGES.road_charges].find(c => c.id === id);
+                if (!charge) return null;
+                return (
+                  <div key={id} style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "20px", padding: "4px 12px", fontSize: "12px", color: C.green, fontWeight: "600", fontFamily: FONT, display: "flex", alignItems: "center", gap: "6px" }}>
+                    {charge.label} · £{charge.amount.toFixed(2)}
+                    <button onClick={() => setSettings(s => ({ ...s, savedChargeIds: (s.savedChargeIds || []).filter(x => x !== id) }))} style={{ background: "none", border: "none", color: C.green, cursor: "pointer", fontSize: "14px", padding: "0", lineHeight: 1 }}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={() => setSettings(s => ({ ...s, savedChargeIds: [] }))} style={{ background: "none", border: `1px dashed ${C.border}`, borderRadius: "8px", padding: "8px 14px", color: C.sub, fontSize: "12px", fontWeight: "600", fontFamily: FONT, cursor: "pointer" }}>
+              ↺ Redo charges setup
+            </button>
+          </>
+        )}
       </div>
 
       <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: "12px", padding: "14px", fontSize: "12px", color: C.green, fontFamily: FONT, fontWeight: "600" }}>
@@ -2126,66 +2260,20 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
           <div style={{ marginBottom: "18px" }}>
             <div style={{ fontSize: "12px", fontWeight: "700", color: C.sub, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px", fontFamily: FONT }}>Quick Add — Airport & Road Charges</div>
 
-            {/* Pending confirmation */}
-            {pendingCharge && (
-              <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "12px", padding: "14px", marginBottom: "12px" }}>
-                <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, marginBottom: "10px", fontFamily: FONT }}>{pendingCharge.label}</div>
-                <div style={{ fontSize: "12px", color: C.sub, marginBottom: "8px", fontFamily: FONT }}>Edit the amount if needed, then confirm:</div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <div style={{ position: "relative", flex: 1 }}>
-                    <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontFamily: FONT, fontSize: "15px" }}>£</span>
-                    <input
-                      style={{ ...inputStyle, paddingLeft: "24px" }}
-                      type="number"
-                      step="0.01"
-                      value={pendingAmt}
-                      onChange={e => setPendingAmt(e.target.value)}
-                      autoFocus
-                    />
-                  </div>
-                  <button onClick={confirmCharge} disabled={!pendingAmt} style={{ padding: "12px 18px", background: C.green, border: "none", borderRadius: "10px", color: "#fff", fontWeight: "700", fontSize: "14px", fontFamily: FONT, cursor: "pointer" }}>✓ Add</button>
-                  <button onClick={() => { setPendingCharge(null); setPendingAmt(""); }} style={{ padding: "12px 14px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.sub, fontWeight: "600", fontSize: "14px", fontFamily: FONT, cursor: "pointer" }}>✕</button>
-                </div>
-              </div>
-            )}
+            {/* Build charge list from saved profile charges, fall back to PRESET_CHARGES */}
+            {(() => {
+              const savedIds = settings.savedChargeIds;
+              const allCharges = [...UK_CHARGES.airports_dropoff, ...UK_CHARGES.airports_pickup, ...UK_CHARGES.road_charges];
+              const chargeList = savedIds?.length > 0
+                ? savedIds.map(id => allCharges.find(c => c.id === id)).filter(Boolean)
+                : PRESET_CHARGES;
 
-            {/* Drop-offs */}
-            <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>✈ Drop-offs</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
-              {PRESET_CHARGES.filter(c => c.group === "dropoff").map(c => (
-                <button key={c.id} onClick={() => tapCharge(c)} style={{
-                  padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
-                  background: quickAdded === c.id ? C.greenBg : pendingCharge?.id === c.id ? C.blueBg : C.light,
-                  border: `1.5px solid ${quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.border}`,
-                  color: quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.text,
-                  fontSize: "12px", fontWeight: "600", fontFamily: FONT,
-                }}>
-                  {quickAdded === c.id ? "✓ " : ""}{c.label.replace(" Drop-off", "").replace(" Express Set Down", "")} <span style={{ opacity: 0.6 }}>£{c.amount.toFixed(2)}</span>
-                </button>
-              ))}
-            </div>
+              const dropoffs = chargeList.filter(c => UK_CHARGES.airports_dropoff.find(a => a.id === c.id));
+              const pickups = chargeList.filter(c => UK_CHARGES.airports_pickup.find(a => a.id === c.id));
+              const roads = chargeList.filter(c => UK_CHARGES.road_charges.find(a => a.id === c.id) || c.group === "road");
 
-            {/* Pick-ups */}
-            <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🅿 Pick-up Parking</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
-              {PRESET_CHARGES.filter(c => c.group === "pickup").map(c => (
-                <button key={c.id} onClick={() => tapCharge(c)} style={{
-                  padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
-                  background: quickAdded === c.id ? C.greenBg : pendingCharge?.id === c.id ? C.blueBg : C.light,
-                  border: `1.5px solid ${quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.border}`,
-                  color: quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.text,
-                  fontSize: "12px", fontWeight: "600", fontFamily: FONT,
-                }}>
-                  {quickAdded === c.id ? "✓ " : ""}{c.label.replace(" Pick-up Parking", "").replace(" Airport", "")} <span style={{ opacity: 0.6 }}>£{c.amount.toFixed(2)}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Road charges */}
-            <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🛣 Road Charges</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
-              {PRESET_CHARGES.filter(c => c.group === "road").map(c => (
-                <button key={c.id} onClick={() => tapCharge(c)} style={{
+              const ChargeBtn = ({ c }) => (
+                <button onClick={() => tapCharge(c)} style={{
                   padding: "7px 12px", borderRadius: "20px", cursor: "pointer",
                   background: quickAdded === c.id ? C.greenBg : pendingCharge?.id === c.id ? C.blueBg : C.light,
                   border: `1.5px solid ${quickAdded === c.id ? C.green : pendingCharge?.id === c.id ? C.blue : C.border}`,
@@ -2194,8 +2282,53 @@ function Expenses({ expenses, setExpenses, fuelLogs, setFuelLogs, settings, setS
                 }}>
                   {quickAdded === c.id ? "✓ " : ""}{c.label} <span style={{ opacity: 0.6 }}>£{c.amount.toFixed(2)}</span>
                 </button>
-              ))}
-            </div>
+              );
+
+              return (
+                <>
+                  {/* Pending confirmation */}
+                  {pendingCharge && (
+                    <div style={{ background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: "12px", padding: "14px", marginBottom: "12px" }}>
+                      <div style={{ fontSize: "13px", fontWeight: "700", color: C.text, marginBottom: "10px", fontFamily: FONT }}>{pendingCharge.label}</div>
+                      <div style={{ fontSize: "12px", color: C.sub, marginBottom: "8px", fontFamily: FONT }}>Edit the amount if needed, then confirm:</div>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: C.sub, fontFamily: FONT, fontSize: "15px" }}>£</span>
+                          <input style={{ ...inputStyle, paddingLeft: "24px" }} type="number" step="0.01" value={pendingAmt} onChange={e => setPendingAmt(e.target.value)} autoFocus />
+                        </div>
+                        <button onClick={confirmCharge} disabled={!pendingAmt} style={{ padding: "12px 18px", background: C.green, border: "none", borderRadius: "10px", color: "#fff", fontWeight: "700", fontSize: "14px", fontFamily: FONT, cursor: "pointer" }}>✓ Add</button>
+                        <button onClick={() => { setPendingCharge(null); setPendingAmt(""); }} style={{ padding: "12px 14px", background: C.light, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.sub, fontWeight: "600", fontSize: "14px", fontFamily: FONT, cursor: "pointer" }}>✕</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {dropoffs.length > 0 && <>
+                    <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>✈ Drop-offs</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+                      {dropoffs.map(c => <ChargeBtn key={c.id} c={c} />)}
+                    </div>
+                  </>}
+                  {pickups.length > 0 && <>
+                    <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🅿 Pick-up Parking</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+                      {pickups.map(c => <ChargeBtn key={c.id} c={c} />)}
+                    </div>
+                  </>}
+                  {roads.length > 0 && <>
+                    <div style={{ fontSize: "11px", fontWeight: "600", color: C.muted, marginBottom: "6px", fontFamily: FONT }}>🛣 Road Charges</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+                      {roads.map(c => <ChargeBtn key={c.id} c={c} />)}
+                    </div>
+                  </>}
+
+                  {!savedIds?.length && (
+                    <div style={{ fontSize: "11px", color: C.muted, marginBottom: "8px", fontFamily: FONT }}>
+                      💡 Set up your personal charges in <strong>☰ → My Profile → My Charges</strong> to see only the ones relevant to you
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {/* My custom charges */}
             {savedCustomCharges.length > 0 && (
